@@ -1,0 +1,79 @@
+{
+  "name": "receipt-cli",
+  "version": "0.1.0",
+  "description": "See exactly what your AI coding agent cost — itemized on every pull request. Token and dollar tracking for Claude Code, Cursor, Copilot, Aider, and any OpenAI- or Anthropic-compatible tool.",
+  "keywords": [
+    "ai",
+    "llm",
+    "cost",
+    "token",
+    "tokens",
+    "pricing",
+    "openai",
+    "anthropic",
+    "claude",
+    "claude-code",
+    "cursor",
+    "copilot",
+    "aider",
+    "github-action",
+    "pull-request",
+    "cost-tracking",
+    "token-counter",
+    "llm-cost",
+    "ai-cost",
+    "finops",
+    "observability",
+    "developer-tools",
+    "cli",
+    "proxy",
+    "dashboard"
+  ],
+  "homepage": "https://github.com/noah-thing/receipt#readme",
+  "bugs": {
+    "url": "https://github.com/noah-thing/receipt/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/noah-thing/receipt.git"
+  },
+  "license": "MIT",
+  "author": "Noah",
+  "type": "module",
+  "bin": {
+    "receipt": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "dashboard",
+    "src/prices.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "commander": "^12.1.0",
+    "picocolors": "^1.1.1",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

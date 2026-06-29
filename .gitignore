@@ -1,0 +1,18 @@
+node_modules/
+*.log
+.DS_Store
+coverage/
+.vitest/
+.idea/
+.vscode/
+*.tsbuildinfo
+
+# Receipt keeps its ledger here. It holds only token/cost metadata, never
+# prompt or response content — but it is yours, so it stays out of git by
+# default. Commit it deliberately if your team wants CI to read it.
+.receipt/ledger.jsonl
+.receipt/config.json
+.receipt/prices.json
+
+# The example ledger under examples/ is intentionally tracked.
+!examples/.receipt/ledger.jsonl

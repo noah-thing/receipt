@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Receipt — AI spend</title>
+    <style>
+      :root {
+        --paper: #faf9f6;
+        --ink: #1b1a17;
+        --muted: #6b6760;
+        --rule: #e2ddd3;
+        --anthropic: #c0633f;
+        --openai: #2f7d6b;
+        --google: #3f5fa6;
+        --unknown: #9a948a;
+        --over: #b23b3b;
+      }
+      * { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font: 15px/1.5 ui-serif, "Iowan Old Style", Georgia, serif;
+        padding: 48px 24px 96px;
+      }
+      .wrap { max-width: 860px; margin: 0 auto; }
+      header { border-bottom: 2px solid var(--ink); padding-bottom: 14px; margin-bottom: 28px; }
+      .mark { font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+      h1 { font-size: 30px; margin: 4px 0 2px; font-weight: 600; letter-spacing: -0.01em; }
+      .sub { color: var(--muted); font-size: 13px; }
+      .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin-bottom: 36px; }
+      .kpi { background: var(--paper); padding: 16px 18px; }
+      .kpi .v { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+      .kpi .l { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 2px; }
+      section { margin-bottom: 40px; }
+      h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin: 0 0 14px; }
+      .mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace; }
+      .bars { display: flex; flex-direction: column; gap: 7px; }
+      .bar-row { display: grid; grid-template-columns: 170px 1fr 84px; align-items: center; gap: 12px; font-size: 13px; }
+      .bar-row .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .track { height: 14px; background: #efeae0; }
+      .fill { height: 100%; }
+      .amt { text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th { text-align: left; font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 8px; border-bottom: 1px solid var(--rule); }
+      td { padding: 7px 8px; border-bottom: 1px solid var(--rule); font-variant-numeric: tabular-nums; }
+      td.num { text-align: right; font-family: ui-monospace, monospace; }
+      .legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 10px; flex-wrap: wrap; }
+      .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+      .axis { font-size: 11px; fill: var(--muted); font-family: ui-monospace, monospace; }
+      .budget { font-size: 13px; color: var(--muted); margin-top: 8px; }
+      .over { color: var(--over); font-weight: 600; }
+      footer { color: var(--muted); font-size: 12px; border-top: 1px solid var(--rule); padding-top: 14px; margin-top: 48px; }
+      .empty { color: var(--muted); font-style: italic; }
+      @media (max-width: 620px) {
+        .kpis { grid-template-columns: repeat(2, 1fr); }
+        .bar-row { grid-template-columns: 110px 1fr 70px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="mark">🧾 Receipt</div>
+        <h1 id="total">$0.00</h1>
+        <div class="sub" id="range">no usage recorded yet</div>
+      </header>
+
+      <div class="kpis" id="kpis"></div>
+
+      <section>
+        <h2>Spend over time</h2>
+        <div id="timeline"></div>
+      </section>
+
+      <section>
+        <h2>By model</h2>
+        <div class="bars" id="models"></div>
+        <div class="legend" id="legend"></div>
+      </section>
+
+      <section>
+        <h2>By branch</h2>
+        <div id="branches"></div>
+      </section>
+
+      <section>
+        <h2>Most expensive calls</h2>
+        <div id="top"></div>
+      </section>
+
+      <footer id="footer"></footer>
+    </div>
+
+    <script>
+      /*__RECEIPT_DATA__*/
+      const D = (window.__RECEIPT__) || {
+        currency: "USD", totals: { cost: 0, tokens: 0, calls: 0 },
+        daily: [], byModel: [], byBranch: [], byProvider: [], topCalls: [], generatedAt: new Date().toISOString(),
+      };
+      const PROVIDER = { anthropic: "var(--anthropic)", openai: "var(--openai)", google: "var(--google)", unknown: "var(--unknown)" };
+
+      const money = (n) => {
+        const s = "$";
+        if (!n) return s + "0.00";
+        if (n < 0.01) return s + n.toFixed(4);
+        if (n < 1) return s + n.toFixed(3);
+        return s + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      };
+      const tokens = (n) => n < 1000 ? String(n) : n < 1e6 ? (n / 1e3).toFixed(n < 1e4 ? 1 : 0) + "k" : (n / 1e6).toFixed(1) + "M";
+      const el = (tag, attrs = {}, html) => {
+        const e = document.createElementNS(attrs.ns || "http://www.w3.org/1999/xhtml", tag);
+        for (const [k, v] of Object.entries(attrs)) if (k !== "ns") e.setAttribute(k, v);
+        if (html != null) e.innerHTML = html;
+        return e;
+      };
+
+      document.getElementById("total").textContent = money(D.totals.cost);
+      if (D.totals.firstTs) {
+        const f = D.totals.firstTs.slice(0, 10), l = D.totals.lastTs.slice(0, 10);
+        document.getElementById("range").textContent = f === l ? f : f + " → " + l;
+      }
+
+      // KPIs
+      const kpis = [
+        ["Spend", money(D.totals.cost)],
+        ["Tokens", tokens(D.totals.tokens)],
+        ["Calls", D.totals.calls.toLocaleString("en-US")],
+        ["Models", String(D.byModel.length)],
+      ];
+      const kw = document.getElementById("kpis");
+      for (const [l, v] of kpis) {
+        const d = el("div", { class: "kpi" });
+        d.appendChild(el("div", { class: "v" }, v));
+        d.appendChild(el("div", { class: "l" }, l));
+        kw.appendChild(d);
+      }
+
+      // Timeline (SVG bars by day)
+      (function timeline() {
+        const host = document.getElementById("timeline");
+        if (!D.daily.length) { host.innerHTML = '<div class="empty">Not enough data for a timeline yet.</div>'; return; }
+        const W = 820, H = 150, padL = 8, padB = 22, padT = 8;
+        const max = Math.max(...D.daily.map((d) => d.cost)) || 1;
+        const n = D.daily.length;
+        const bw = Math.max(2, Math.min(34, (W - padL * 2) / n - 4));
+        const svg = el("svg", { ns: "http://www.w3.org/2000/svg", viewBox: `0 0 ${W} ${H}`, width: "100%", height: H });
+        const baseY = H - padB;
+        D.daily.forEach((d, i) => {
+          const x = padL + (i + 0.5) * ((W - padL * 2) / n) - bw / 2;
+          const h = (d.cost / max) * (H - padT - padB);
+          svg.appendChild(el("rect", { ns: "http://www.w3.org/2000/svg", x, y: baseY - h, width: bw, height: Math.max(0, h), fill: "var(--ink)" }));
+        });
+        svg.appendChild(el("line", { ns: "http://www.w3.org/2000/svg", x1: padL, y1: baseY, x2: W - padL, y2: baseY, stroke: "var(--rule)" }));
+        const first = el("text", { ns: "http://www.w3.org/2000/svg", x: padL, y: H - 6, class: "axis" }); first.textContent = D.daily[0].date;
+        const last = el("text", { ns: "http://www.w3.org/2000/svg", x: W - padL, y: H - 6, class: "axis", "text-anchor": "end" }); last.textContent = D.daily[n - 1].date;
+        const peak = el("text", { ns: "http://www.w3.org/2000/svg", x: padL, y: padT + 10, class: "axis" }); peak.textContent = "peak " + money(max);
+        svg.append(first, last, peak);
+        host.appendChild(svg);
+      })();
+
+      // By model bars
+      (function models() {
+        const host = document.getElementById("models");
+        if (!D.byModel.length) { host.innerHTML = '<div class="empty">No model data.</div>'; return; }
+        const max = Math.max(...D.byModel.map((m) => m.cost)) || 1;
+        for (const m of D.byModel.slice(0, 10)) {
+          const row = el("div", { class: "bar-row" });
+          row.appendChild(el("div", { class: "name mono", title: m.model }, m.model));
+          const track = el("div", { class: "track" });
+          const fill = el("div", { class: "fill" });
+          fill.style.width = Math.max(1.5, (m.cost / max) * 100) + "%";
+          fill.style.background = PROVIDER[m.provider] || PROVIDER.unknown;
+          track.appendChild(fill);
+          row.appendChild(track);
+          row.appendChild(el("div", { class: "amt" }, money(m.cost)));
+          host.appendChild(row);
+        }
+        const lg = document.getElementById("legend");
+        for (const p of D.byProvider) {
+          const s = el("span");
+          s.innerHTML = '<span class="dot" style="background:' + (PROVIDER[p.provider] || PROVIDER.unknown) + '"></span>' + p.provider + " · " + money(p.cost);
+          lg.appendChild(s);
+        }
+      })();
+
+      // By branch table
+      (function branches() {
+        const host = document.getElementById("branches");
+        if (!D.byBranch.length) { host.innerHTML = '<div class="empty">No branch data.</div>'; return; }
+        const t = el("table");
+        t.innerHTML = "<thead><tr><th>Branch</th><th style='text-align:right'>Calls</th><th style='text-align:right'>Cost</th></tr></thead>";
+        const tb = el("tbody");
+        for (const b of D.byBranch.slice(0, 12)) {
+          const tr = el("tr");
+          tr.innerHTML = '<td class="mono">' + b.branch + "</td><td class='num'>" + b.calls + "</td><td class='num'>" + money(b.cost) + "</td>";
+          tb.appendChild(tr);
+        }
+        t.appendChild(tb);
+        host.appendChild(t);
+      })();
+
+      // Top calls
+      (function top() {
+        const host = document.getElementById("top");
+        if (!D.topCalls.length) { host.innerHTML = '<div class="empty">No priced calls yet.</div>'; return; }
+        const t = el("table");
+        t.innerHTML = "<thead><tr><th>When</th><th>Model</th><th>Branch</th><th style='text-align:right'>Tokens</th><th style='text-align:right'>Cost</th></tr></thead>";
+        const tb = el("tbody");
+        for (const c of D.topCalls) {
+          const tr = el("tr");
+          tr.innerHTML =
+            "<td class='mono'>" + c.ts.slice(0, 16).replace("T", " ") + "</td>" +
+            "<td class='mono'>" + c.model + "</td>" +
+            "<td class='mono'>" + (c.branch || "—") + "</td>" +
+            "<td class='num'>" + tokens(c.tokens) + "</td>" +
+            "<td class='num'>" + money(c.cost) + "</td>";
+          tb.appendChild(tr);
+        }
+        t.appendChild(tb);
+        host.appendChild(t);
+      })();
+
+      // Footer + budget
+      (function footer() {
+        const f = document.getElementById("footer");
+        let txt = "Generated " + D.generatedAt.slice(0, 16).replace("T", " ") + " · prices are best-effort list rates, override in .receipt/prices.json";
+        if (D.budget && D.budget.perDay) {
+          const today = new Date().toISOString().slice(0, 10);
+          const td = D.daily.find((d) => d.date === today);
+          const spent = td ? td.cost : 0;
+          const frac = spent / D.budget.perDay;
+          const cls = frac > 1 ? "over" : "";
+          const b = el("div", { class: "budget" });
+          b.innerHTML = "Today: <span class='" + cls + "'>" + money(spent) + "</span> of " + money(D.budget.perDay) + " daily budget";
+          f.parentNode.insertBefore(b, f);
+        }
+        f.textContent = txt;
+      })();
+    </script>
+  </body>
+</html>

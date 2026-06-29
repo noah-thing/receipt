@@ -1,0 +1,51 @@
+name: "AI Cost Receipt"
+description: "Post an itemized AI cost receipt (tokens and dollars) as a sticky comment on every pull request. Works with Claude Code, Cursor, Copilot, Aider, and any OpenAI- or Anthropic-compatible tool."
+author: "Noah"
+branding:
+  icon: "dollar-sign"
+  color: "green"
+
+inputs:
+  github-token:
+    description: "Token used to read and write the PR comment."
+    required: false
+    default: ${{ github.token }}
+  ledger-path:
+    description: "Path to the ledger file to read."
+    required: false
+    default: ".receipt/ledger.jsonl"
+  base:
+    description: "Base branch to diff against."
+    required: false
+    default: ${{ github.base_ref }}
+  branch:
+    description: "Head branch to scope the receipt to."
+    required: false
+    default: ${{ github.head_ref }}
+  pr-number:
+    description: "Pull request number (auto-detected from the event if omitted)."
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+    - name: Post receipt
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        RECEIPT_LEDGER: ${{ inputs.ledger-path }}
+        INPUT_BASE: ${{ inputs.base }}
+        INPUT_BRANCH: ${{ inputs.branch }}
+        INPUT_PR: ${{ inputs.pr-number }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        args=(post)
+        [ -n "$INPUT_BASE" ] && args+=(--base "$INPUT_BASE")
+        [ -n "$INPUT_BRANCH" ] && args+=(--branch "$INPUT_BRANCH")
+        [ -n "$INPUT_PR" ] && args+=(--pr "$INPUT_PR")
+        node "$ACTION_PATH/dist/cli.js" "${args[@]}"

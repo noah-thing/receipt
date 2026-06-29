@@ -1,0 +1,40 @@
+# Drop this in .github/workflows/receipt.yml in your own repo.
+#
+# It expects a ledger at .receipt/ledger.jsonl on the PR branch. Two common
+# ways to get one there:
+#
+#   1. Commit it. Run the proxy or `receipt import` locally, commit
+#      .receipt/ledger.jsonl, and this workflow reads it straight from checkout.
+#
+#   2. Restore it from an artifact your local tooling uploads (swap the
+#      "Restore ledger" step below for actions/download-artifact).
+
+name: Receipt
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write # needed to post the comment
+
+jobs:
+  receipt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # so the base..head commit range resolves
+
+      # Option 2 example — uncomment if you upload the ledger as an artifact:
+      # - name: Restore ledger
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     name: receipt-ledger
+      #     path: .receipt
+
+      - name: Post the receipt
+        uses: noah-thing/receipt@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

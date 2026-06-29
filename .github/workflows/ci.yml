@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      # The GitHub Action runs the committed bundle, so dist/ should track src.
+      - name: Check dist is up to date
+        run: |
+          if ! git diff --quiet -- dist; then
+            echo "::warning::dist differs from a fresh build. Run 'npm run build' and commit dist/."
+          fi
