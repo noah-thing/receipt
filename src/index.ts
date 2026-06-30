@@ -51,6 +51,16 @@ export {
 } from "./usage-render.js";
 export { recommend, costDrivers, topRecommendation } from "./advice.js";
 export type { Recommendation, Severity } from "./advice.js";
+export {
+  sessionHealth,
+  analyzeSession,
+  sessionize,
+  latestSession,
+  contextWindowFor,
+  promptTokens,
+} from "./health.js";
+export type { SessionHealth, HealthSignal, HealthStatus } from "./health.js";
+export { renderHealth, healthOneLine } from "./usage-render.js";
 export type {
   LedgerEntry,
   ModelPrice,

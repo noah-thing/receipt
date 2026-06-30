@@ -245,6 +245,29 @@ Recommendations
      first and unchanged so it caches, and avoid /clear mid-task.
 ```
 
+### Keep the session sharp — `receipt health`
+
+```bash
+receipt health     # is the current session still sharp?
+```
+
+AI coding sessions get *worse before they hit any limit* — context rot, lost-in-the-middle, instruction drift, looping, and lossy auto-compaction all set in while the window still has room. The research is consistent: usable context is only ~50–65% of the advertised window, recall sags past ~50% fill, and multi-turn quality can drop ~39% over a long conversation. Anthropic's own advice is to compact *proactively at 50–60%*, before the summary itself goes lossy.
+
+Receipt reads the same ledger and estimates, per session, how close you are to that cliff — then tells you the move to make **before** quality drops:
+
+```
+🧠 Session health — keeping the agent sharp
+
+🟡 Watch  context 64% full (640k/1000k) · 14 turns · 31 min · 78% cache reuse
+
+  🟡 Context is ~64% full — usable context is only ~50–65% of the window.
+     → good moment to /compact (Anthropic suggests 50–60%, before quality dips)
+  🟡 14 turns — multi-turn drift creeps in past ~12.
+     → switching tasks? /clear. Long task? checkpoint and start a fresh session.
+```
+
+It watches context fill (by % *and* absolute size, since big windows degrade by absolute tokens), session length and age, cache reuse (context churn), auto-compaction cascades, and looping. Every suggestion keeps the agent **sharp** — `/compact`, `/clear`, a fresh session, `/rewind` — and never tells it to think or write less. The live gauge also rides along in `receipt statusline` and `receipt fuel`. The signals, thresholds, and the research behind them are in [`docs/SESSION-HEALTH.md`](docs/SESSION-HEALTH.md).
+
 ## Dashboard
 
 ```bash
@@ -294,7 +317,8 @@ Claude Code, Cursor, Aider, Codex CLI, Continue, the OpenAI and Anthropic SDKs, 
 | `receipt records` | Your heaviest, leanest, and most recent tasks. |
 | `receipt forecast` | A typical task's impact and your weekly runway. |
 | `receipt advice` | How to cut wasted tokens, without making the work worse. |
-| `receipt statusline` | One-line usage gauge for the Claude Code statusline. |
+| `receipt health` | Whether the current session is still sharp; warns before it degrades. |
+| `receipt statusline` | One-line usage + session-health gauge for the Claude Code statusline. |
 | `receipt calibrate` | Set your real window budget from a limit you hit. |
 
 Run any command with `--help` for its flags.

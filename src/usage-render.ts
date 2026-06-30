@@ -20,6 +20,7 @@ import {
   type Fuel,
 } from "./usage.js";
 import { costDrivers, type Recommendation } from "./advice.js";
+import type { HealthStatus, SessionHealth } from "./health.js";
 import type { LedgerEntry } from "./types.js";
 
 // ── small formatters ─────────────────────────────────────────────────────────
@@ -326,6 +327,70 @@ function wrap(text: string, width: number, indent: string): string {
   }
   if (cur) lines.push(cur);
   return lines.map((l) => indent + l).join("\n");
+}
+
+// ── terminal: session health ─────────────────────────────────────────────────
+
+const STATUS_BADGE: Record<HealthStatus, string> = {
+  fresh: "🟢 Fresh",
+  healthy: "🟢 Healthy",
+  watch: "🟡 Watch",
+  degrading: "🟠 Degrading",
+  critical: "🔴 Critical",
+};
+
+function sigMark(sev: "ok" | "watch" | "high"): (s: string) => string {
+  if (sev === "high") return (s) => pc.red("🔴 " + s);
+  if (sev === "watch") return (s) => pc.yellow("🟡 " + s);
+  return (s) => pc.dim("· " + s);
+}
+
+export function renderHealth(h: SessionHealth | undefined): string {
+  const out: string[] = [];
+  out.push("");
+  out.push(pc.bold("🧠 Session health — keeping the agent sharp"));
+  out.push("");
+  if (!h) {
+    out.push(pc.dim("No recent session in the ledger yet. Run your agent (or import it), then check back."));
+    out.push("");
+    return out.join("\n");
+  }
+  const head =
+    `${STATUS_BADGE[h.status]}  ` +
+    pc.dim(
+      `context ${Math.round(h.fill * 100)}% full (${Math.round(h.contextTokens / 1000)}k/${Math.round(h.contextWindow / 1000)}k) · ` +
+        `${h.calls} turns · ${Math.round(h.durationMin)} min · ${Math.round(h.cacheReadShare * 100)}% cache reuse`,
+    );
+  out.push(head);
+  out.push("");
+
+  if (h.signals.length === 0) {
+    out.push(pc.green("  Looking sharp. Nothing to refresh yet."));
+  } else {
+    for (const s of h.signals) {
+      out.push("  " + sigMark(s.severity)(s.detail));
+      out.push(pc.cyan("     → " + s.action));
+      out.push("");
+    }
+  }
+  out.push(
+    pc.dim(
+      "Why act early: usable context is only ~50–65% of the window (RULER), and recall sags past ~50% fill. " +
+        "Compacting before the wall keeps quality high — it doesn't make the agent do less.",
+    ),
+  );
+  out.push("");
+  return out.join("\n");
+}
+
+/** Compact health fragment for the statusline / fuel. */
+export function healthOneLine(h: SessionHealth | undefined): string {
+  if (!h) return "";
+  const dot = h.status === "critical" ? "🔴" : h.status === "degrading" ? "🟠" : h.status === "watch" ? "🟡" : "🟢";
+  const parts = [`${dot} ctx ${Math.round(h.fill * 100)}%`, `${h.calls} turns`];
+  const top = h.signals[0];
+  if (top && top.severity !== "ok") parts.push(top.key.replace(/-/g, " "));
+  return "🧠 " + parts.join(" · ");
 }
 
 export function renderAdvice(receipt: Receipt, recs: Recommendation[]): string {

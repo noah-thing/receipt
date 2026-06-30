@@ -500,10 +500,10 @@ declare function estimateRepoTokens(root: string, maxFiles?: number): number;
  * Every rule fires only on a real signal in your own data.
  */
 
-type Severity = "high" | "medium" | "low";
+type Severity$1 = "high" | "medium" | "low";
 interface Recommendation {
     id: string;
-    severity: Severity;
+    severity: Severity$1;
     /** Short imperative headline. */
     title: string;
     /** Why it costs, and how to fix it — without losing quality. */
@@ -520,6 +520,67 @@ declare function costDrivers(receipt: Receipt): string[];
 declare function recommend(receipt: Receipt, pricing: Pricing): Recommendation[];
 /** The single most actionable tip, for a one-liner on the receipt. Skips the "clean" note. */
 declare function topRecommendation(receipt: Receipt, pricing: Pricing): Recommendation | undefined;
+
+/**
+ * Session health — keeping the agent sharp, not just cheap.
+ *
+ * Long sessions get worse before they hit any hard limit: context rot, lost-in-
+ * the-middle, instruction drift, looping, and lossy auto-compaction all set in
+ * while the window still has room. The research is consistent — effective
+ * context is only ~50–65% of the advertised window (RULER), recall sags past
+ * ~50% fill (lost-in-the-middle), and multi-turn quality drops ~39% over a long
+ * conversation. Anthropic's own advice is to compact *proactively at 50–60%*,
+ * before the summary itself goes lossy.
+ *
+ * This module reads the same ledger as everything else and estimates, per
+ * session, how close it is to that quality cliff — then tells you the right
+ * move (/compact, /clear, a fresh session, /rewind) BEFORE the output degrades.
+ * It never advises doing less work; it protects the work's quality.
+ *
+ * The key trick: for any call, input + cache-read + cache-write tokens ≈ the
+ * size of the prompt sent that turn ≈ how full the context was. No internals
+ * needed — the ledger already has it.
+ */
+
+declare function contextWindowFor(model: string): number;
+/** Tokens sent in one call ≈ context size at that turn. */
+declare function promptTokens(e: LedgerEntry): number;
+/** Split the ledger into sessions by an idle gap (default 30 min). Ascending. */
+declare function sessionize(entries: LedgerEntry[], gapMs?: number): LedgerEntry[][];
+/** The most recent session, or undefined if the ledger is empty. */
+declare function latestSession(entries: LedgerEntry[], gapMs?: number): LedgerEntry[] | undefined;
+type Severity = "ok" | "watch" | "high";
+type HealthStatus = "fresh" | "healthy" | "watch" | "degrading" | "critical";
+interface HealthSignal {
+    key: string;
+    severity: Severity;
+    /** What's happening. */
+    detail: string;
+    /** The quality-preserving move to make. */
+    action: string;
+}
+interface SessionHealth {
+    calls: number;
+    durationMin: number;
+    model: string;
+    contextWindow: number;
+    /** Estimated current context size (tokens), from the heaviest of the last few calls. */
+    contextTokens: number;
+    fill: number;
+    cacheReadShare: number;
+    compactions: number;
+    recentRetries: number;
+    status: HealthStatus;
+    signals: HealthSignal[];
+}
+/**
+ * Score one session's quality risk from its token shape. Thresholds are drawn
+ * from the research: compact proactively ~60% fill, degradation well before
+ * "full", multi-turn drift past ~12 turns, accumulation slowdown past ~2h.
+ */
+declare function analyzeSession(session: LedgerEntry[], now: number): SessionHealth;
+/** Analyze the most recent session in the ledger. */
+declare function sessionHealth(entries: LedgerEntry[], now: number): SessionHealth | undefined;
 
 interface UsageBlockExtras {
     topTip?: Recommendation;
@@ -546,6 +607,9 @@ declare function usageSummaryText(receipt: Receipt, fuel: Fuel, extras?: {
     fun?: boolean;
     repoTokens?: number;
 }): string;
+declare function renderHealth(h: SessionHealth | undefined): string;
+/** Compact health fragment for the statusline / fuel. */
+declare function healthOneLine(h: SessionHealth | undefined): string;
 declare function renderAdvice(receipt: Receipt, recs: Recommendation[]): string;
 
-export { type Budget, COMMENT_MARKER, FIVE_HOURS_MS, type LedgerEntry, type ModelPrice, type ModelRollup, PLAN_PRESETS, type PlanBudget, type PlanId, type PriceBook, Pricing, type Receipt, type ReceiptConfig, type Recommendation, type Severity, WEEK_MS, append, appendMany, buildDashboardData, buildReceipt, capacity, captureLimits, costDrivers, efficiencyGrade, entryTokens, estimateRepoTokens, fuel, funEquivalences, importClaudeCode, importGeneric, inWorkUnits, knownRequestIds, ledgerPath, paceState, personalStats, presetFor, providerOf, quantile, readLedger, readObservedBudget, recommend, records, renderAdvice, renderForecast, renderFuel, renderMarkdown, renderRecords, renderStatusline, renderText, resolveBudget, selectEntries, taskImpact, taskRollups, taskSizes, topRecommendation, usageBlockMarkdown, usageSummaryText, voiceLine, whatIf, whereItWent, windowState, writeObservedBudget };
+export { type Budget, COMMENT_MARKER, FIVE_HOURS_MS, type HealthSignal, type HealthStatus, type LedgerEntry, type ModelPrice, type ModelRollup, PLAN_PRESETS, type PlanBudget, type PlanId, type PriceBook, Pricing, type Receipt, type ReceiptConfig, type Recommendation, type SessionHealth, type Severity$1 as Severity, WEEK_MS, analyzeSession, append, appendMany, buildDashboardData, buildReceipt, capacity, captureLimits, contextWindowFor, costDrivers, efficiencyGrade, entryTokens, estimateRepoTokens, fuel, funEquivalences, healthOneLine, importClaudeCode, importGeneric, inWorkUnits, knownRequestIds, latestSession, ledgerPath, paceState, personalStats, presetFor, promptTokens, providerOf, quantile, readLedger, readObservedBudget, recommend, records, renderAdvice, renderForecast, renderFuel, renderHealth, renderMarkdown, renderRecords, renderStatusline, renderText, resolveBudget, selectEntries, sessionHealth, sessionize, taskImpact, taskRollups, taskSizes, topRecommendation, usageBlockMarkdown, usageSummaryText, voiceLine, whatIf, whereItWent, windowState, writeObservedBudget };

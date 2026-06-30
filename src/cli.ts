@@ -32,10 +32,13 @@ import {
   renderForecast,
   renderStatusline,
   renderAdvice,
+  renderHealth,
+  healthOneLine,
   usageBlockMarkdown,
   usageSummaryText,
 } from "./usage-render.js";
 import { recommend, topRecommendation } from "./advice.js";
+import { sessionHealth } from "./health.js";
 import type { LedgerEntry, PlanBudget, PlanId } from "./types.js";
 
 const program = new Command();
@@ -43,7 +46,7 @@ const program = new Command();
 program
   .name("receipt")
   .description("See exactly what your AI coding agent cost — itemized on every pull request.")
-  .version("0.3.0");
+  .version("0.4.0");
 
 function repoRoot(): string {
   return findRepoRoot();
@@ -332,7 +335,10 @@ program
     const now = Date.now();
     const f = fuel(entries, resolveBudget(config, root), now);
     const fun = Boolean(opts.fun) || config.fun === true;
-    process.stdout.write(renderFuel(f, now, { fun, repoTokens: fun ? estimateRepoTokens(root) : undefined }));
+    let out = renderFuel(f, now, { fun, repoTokens: fun ? estimateRepoTokens(root) : undefined });
+    const h = sessionHealth(entries, now);
+    if (h) out += healthOneLine(h) + pc.dim("  (receipt health for detail)") + "\n\n";
+    process.stdout.write(out);
   });
 
 // ── records ──────────────────────────────────────────────────────────────────
@@ -377,6 +383,18 @@ program
     process.stdout.write(renderAdvice(receipt, recs));
   });
 
+// ── health (session quality) ─────────────────────────────────────────────────
+program
+  .command("health")
+  .alias("session")
+  .description("Is the current session still sharp? Warns before context degrades.")
+  .action(() => {
+    const root = repoRoot();
+    const now = Date.now();
+    const h = sessionHealth(readLedger(ledgerPath(root)), now);
+    process.stdout.write(renderHealth(h));
+  });
+
 // ── statusline (for Claude Code) ─────────────────────────────────────────────
 program
   .command("statusline")
@@ -385,8 +403,10 @@ program
     const root = repoRoot();
     const config = loadConfig(root);
     const now = Date.now();
-    const f = fuel(readLedger(ledgerPath(root)), resolveBudget(config, root), now);
-    process.stdout.write(renderStatusline(f, now) + "\n");
+    const entries = readLedger(ledgerPath(root));
+    const f = fuel(entries, resolveBudget(config, root), now);
+    const h = sessionHealth(entries, now);
+    process.stdout.write(renderStatusline(f, now) + (h ? "  " + healthOneLine(h) : "") + "\n");
   });
 
 // ── calibrate (set a real window budget) ─────────────────────────────────────
