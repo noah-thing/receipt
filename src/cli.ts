@@ -21,7 +21,6 @@ import {
   resolveBudget,
   writeObservedBudget,
   windowState,
-  whatIf,
   estimateRepoTokens,
   PLAN_PRESETS,
   FIVE_HOURS_MS,
@@ -32,9 +31,11 @@ import {
   renderRecords,
   renderForecast,
   renderStatusline,
+  renderAdvice,
   usageBlockMarkdown,
   usageSummaryText,
 } from "./usage-render.js";
+import { recommend, topRecommendation } from "./advice.js";
 import type { LedgerEntry, PlanBudget, PlanId } from "./types.js";
 
 const program = new Command();
@@ -42,7 +43,7 @@ const program = new Command();
 program
   .name("receipt")
   .description("See exactly what your AI coding agent cost — itemized on every pull request.")
-  .version("0.2.1");
+  .version("0.3.0");
 
 function repoRoot(): string {
   return findRepoRoot();
@@ -170,7 +171,7 @@ program
       const f = fuel(allEntries, resolveBudget(config, root), Date.now());
       const fun = Boolean(opts.fun) || config.fun === true;
       const summary = usageSummaryText(receipt, f, {
-        whatIf: whatIf(receipt, Pricing.load(root)),
+        topTip: topRecommendation(receipt, Pricing.load(root)),
         fun,
         repoTokens: fun ? estimateRepoTokens(root) : undefined,
       });
@@ -355,6 +356,27 @@ program
     process.stdout.write(renderForecast(f, now));
   });
 
+// ── advice ───────────────────────────────────────────────────────────────────
+program
+  .command("advice")
+  .alias("tips")
+  .description("How to cut wasted tokens — without making the work worse.")
+  .option("--branch <branch>", "branch to scope to (default: current)")
+  .option("--base <base>", "base branch to diff against", "main")
+  .option("--all", "analyze the whole ledger, ignoring branch")
+  .option("--today", "only today's calls")
+  .action((opts) => {
+    const root = repoRoot();
+    const receipt = computeReceipt(root, {
+      branch: opts.all ? undefined : opts.branch,
+      base: opts.base,
+      allEntries: Boolean(opts.all),
+      today: Boolean(opts.today),
+    });
+    const recs = recommend(receipt, Pricing.load(root));
+    process.stdout.write(renderAdvice(receipt, recs));
+  });
+
 // ── statusline (for Claude Code) ─────────────────────────────────────────────
 program
   .command("statusline")
@@ -443,7 +465,7 @@ function renderPrMarkdown(root: string, branch: string | undefined, base: string
     const f = fuel(entries, resolveBudget(config, root), Date.now());
     const fun = config.fun === true;
     const block = usageBlockMarkdown(receipt, f, {
-      whatIf: whatIf(receipt, pricing),
+      topTip: topRecommendation(receipt, pricing),
       fun,
       repoTokens: fun ? estimateRepoTokens(root) : undefined,
     });

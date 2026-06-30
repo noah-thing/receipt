@@ -486,8 +486,43 @@ declare function captureLimits(getHeader: (name: string) => string | null, root:
  */
 declare function estimateRepoTokens(root: string, maxFiles?: number): number;
 
+/**
+ * Advice — how to spend fewer tokens without making the work worse.
+ *
+ * The guiding rule: never tell the agent to think less, explain less, or produce
+ * less. Output and reasoning are the value. This advisor only targets *waste* —
+ * tokens spent without adding anything: context re-sent instead of cached,
+ * retries, cache rebuilt faster than it's reused, premium prices paid for
+ * mechanical reads, and cost you can't see because a model is unpriced. It also
+ * names what is actually driving the bill, so you know where to look.
+ *
+ * Pure and deterministic: no API key, no network, nothing leaves your machine.
+ * Every rule fires only on a real signal in your own data.
+ */
+
+type Severity = "high" | "medium" | "low";
+interface Recommendation {
+    id: string;
+    severity: Severity;
+    /** Short imperative headline. */
+    title: string;
+    /** Why it costs, and how to fix it — without losing quality. */
+    detail: string;
+    /** Estimated saving, when computable (e.g. "~$2.80 · 37% of this"). */
+    impact?: string;
+}
+/** What's actually driving the cost — the answer to "why is this so much?". */
+declare function costDrivers(receipt: Receipt): string[];
+/**
+ * Build the ranked list of waste-cutting recommendations for a receipt.
+ * Returns a single positive note when nothing is worth changing.
+ */
+declare function recommend(receipt: Receipt, pricing: Pricing): Recommendation[];
+/** The single most actionable tip, for a one-liner on the receipt. Skips the "clean" note. */
+declare function topRecommendation(receipt: Receipt, pricing: Pricing): Recommendation | undefined;
+
 interface UsageBlockExtras {
-    whatIf?: WhatIf;
+    topTip?: Recommendation;
     repoTokens?: number;
     fun?: boolean;
 }
@@ -507,9 +542,10 @@ declare function renderRecords(entries: LedgerEntry[]): string;
 declare function renderForecast(fuel: Fuel, now: number): string;
 /** Compact usage summary appended to `receipt show`. */
 declare function usageSummaryText(receipt: Receipt, fuel: Fuel, extras?: {
-    whatIf?: WhatIf;
+    topTip?: Recommendation;
     fun?: boolean;
     repoTokens?: number;
 }): string;
+declare function renderAdvice(receipt: Receipt, recs: Recommendation[]): string;
 
-export { type Budget, COMMENT_MARKER, FIVE_HOURS_MS, type LedgerEntry, type ModelPrice, type ModelRollup, PLAN_PRESETS, type PlanBudget, type PlanId, type PriceBook, Pricing, type Receipt, type ReceiptConfig, WEEK_MS, append, appendMany, buildDashboardData, buildReceipt, capacity, captureLimits, efficiencyGrade, entryTokens, estimateRepoTokens, fuel, funEquivalences, importClaudeCode, importGeneric, inWorkUnits, knownRequestIds, ledgerPath, paceState, personalStats, presetFor, providerOf, quantile, readLedger, readObservedBudget, records, renderForecast, renderFuel, renderMarkdown, renderRecords, renderStatusline, renderText, resolveBudget, selectEntries, taskImpact, taskRollups, taskSizes, usageBlockMarkdown, usageSummaryText, voiceLine, whatIf, whereItWent, windowState, writeObservedBudget };
+export { type Budget, COMMENT_MARKER, FIVE_HOURS_MS, type LedgerEntry, type ModelPrice, type ModelRollup, PLAN_PRESETS, type PlanBudget, type PlanId, type PriceBook, Pricing, type Receipt, type ReceiptConfig, type Recommendation, type Severity, WEEK_MS, append, appendMany, buildDashboardData, buildReceipt, capacity, captureLimits, costDrivers, efficiencyGrade, entryTokens, estimateRepoTokens, fuel, funEquivalences, importClaudeCode, importGeneric, inWorkUnits, knownRequestIds, ledgerPath, paceState, personalStats, presetFor, providerOf, quantile, readLedger, readObservedBudget, recommend, records, renderAdvice, renderForecast, renderFuel, renderMarkdown, renderRecords, renderStatusline, renderText, resolveBudget, selectEntries, taskImpact, taskRollups, taskSizes, topRecommendation, usageBlockMarkdown, usageSummaryText, voiceLine, whatIf, whereItWent, windowState, writeObservedBudget };

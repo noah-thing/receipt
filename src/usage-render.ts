@@ -18,8 +18,8 @@ import {
   voiceLine,
   whereItWent,
   type Fuel,
-  type WhatIf,
 } from "./usage.js";
+import { costDrivers, type Recommendation } from "./advice.js";
 import type { LedgerEntry } from "./types.js";
 
 // ── small formatters ─────────────────────────────────────────────────────────
@@ -71,7 +71,7 @@ function capacityPhrase(items: ReturnType<typeof capacity>): string {
 // ── markdown block for the PR comment / show ─────────────────────────────────
 
 export interface UsageBlockExtras {
-  whatIf?: WhatIf;
+  topTip?: Recommendation;
   repoTokens?: number;
   fun?: boolean;
 }
@@ -107,11 +107,11 @@ export function usageBlockMarkdown(receipt: Receipt, fuel: Fuel, extras: UsageBl
       `${receipt.retries} ${receipt.retries === 1 ? "retry" : "retries"}.`,
   );
 
-  if (extras.whatIf) {
-    const w = extras.whatIf;
+  if (extras.topTip) {
+    const t = extras.topTip;
     lines.push(
-      `Lever: running \`${w.fromModel}\`'s reads on \`${w.toModel}\` would've saved ` +
-        `**$${w.saved.toFixed(2)}** (${Math.round(w.savedFrac * 100)}% of this PR).`,
+      `💡 **Biggest win:** ${t.title}${t.impact ? ` (${t.impact})` : ""}. ` +
+        "Run `receipt advice` for the full list.",
     );
   }
 
@@ -276,7 +276,7 @@ export function whereItWentText(receipt: Receipt): string {
 export function usageSummaryText(
   receipt: Receipt,
   fuel: Fuel,
-  extras: { whatIf?: WhatIf; fun?: boolean; repoTokens?: number } = {},
+  extras: { topTip?: Recommendation; fun?: boolean; repoTokens?: number } = {},
 ): string {
   if (receipt.totalTokens === 0) return "";
   const out: string[] = [];
@@ -293,12 +293,63 @@ export function usageSummaryText(
   if (impact && fuel.budget) {
     out.push(pc.dim(`   ${capacityPhrase(fuel.capacityFiveHour)} left in this 5h window`));
   }
-  if (extras.whatIf) {
-    out.push(pc.dim(`   lever: ${extras.whatIf.fromModel} reads on ${extras.whatIf.toModel} saves $${extras.whatIf.saved.toFixed(2)}`));
+  if (extras.topTip) {
+    out.push(pc.dim(`   💡 ${extras.topTip.title}${extras.topTip.impact ? ` (${extras.topTip.impact})` : ""}`));
   }
   if (extras.fun) {
     const eq = funEquivalences(receipt.totalTokens, extras.repoTokens);
     if (eq.length) out.push(pc.dim("   = " + eq.slice(0, 2).join(", ")));
+  }
+  return out.join("\n");
+}
+
+// ── terminal: advice ─────────────────────────────────────────────────────────
+
+const SEV_MARK: Record<string, (s: string) => string> = {
+  high: (s) => pc.red("‼ " + s),
+  medium: (s) => pc.yellow("⚠ " + s),
+  low: (s) => pc.dim("· " + s),
+};
+
+/** Word-wrap a paragraph to a width with a hanging indent. */
+function wrap(text: string, width: number, indent: string): string {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    if ((cur + " " + w).trim().length > width) {
+      if (cur) lines.push(cur);
+      cur = w;
+    } else {
+      cur = cur ? cur + " " + w : w;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines.map((l) => indent + l).join("\n");
+}
+
+export function renderAdvice(receipt: Receipt, recs: Recommendation[]): string {
+  const out: string[] = [];
+  out.push("");
+  out.push(pc.bold("💡 Advice — cut the waste, keep the quality"));
+  out.push("");
+  if (receipt.totalTokens === 0) {
+    out.push(pc.dim("No usage recorded for this scope yet. Run your agent, then check back."));
+    out.push("");
+    return out.join("\n");
+  }
+  const drivers = costDrivers(receipt);
+  if (drivers.length) {
+    out.push(pc.bold("What's driving the cost"));
+    for (const d of drivers) out.push("  • " + d.replace(/`/g, ""));
+    out.push("");
+  }
+  out.push(pc.bold("Recommendations"));
+  for (const r of recs) {
+    const mark = SEV_MARK[r.severity] ?? ((s: string) => s);
+    out.push("  " + mark(r.title) + (r.impact ? pc.green(`   ${r.impact}`) : ""));
+    out.push(pc.dim(wrap(r.detail.replace(/`/g, ""), 78, "     ")));
+    out.push("");
   }
   return out.join("\n");
 }

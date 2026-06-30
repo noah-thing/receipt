@@ -4508,6 +4508,116 @@ async function postReceipt(ctx, pr, body) {
 
 // src/usage-render.ts
 var import_picocolors2 = __toESM(require_picocolors(), 1);
+
+// src/advice.ts
+var RANK = { high: 0, medium: 1, low: 2 };
+function freshVsCached(pricing, model, tokens2) {
+  const base = { outputTokens: 0, cacheWrite5mTokens: 0, cacheWrite1hTokens: 0 };
+  const fresh = pricing.cost({ model, inputTokens: tokens2, cacheReadTokens: 0, ...base });
+  const cached = pricing.cost({ model, inputTokens: 0, cacheReadTokens: tokens2, ...base });
+  if (fresh === null || cached === null) return void 0;
+  return fresh - cached;
+}
+function costDrivers(receipt) {
+  const out = [];
+  const byCost = [...receipt.byModel].filter((m) => m.priced).sort((a, b) => b.costUsd - a.costUsd);
+  const top = byCost[0];
+  if (top && receipt.total > 0) {
+    out.push(`\`${top.model}\` \u2014 ${Math.round(top.costUsd / receipt.total * 100)}% of the spend`);
+  }
+  const comp = whereItWent(receipt);
+  const classes = [
+    ["output", comp.output],
+    ["fresh input", comp.freshInput],
+    ["cache reads", comp.cacheRead],
+    ["cache writes", comp.cacheWrite]
+  ];
+  classes.sort((a, b) => b[1] - a[1]);
+  if (classes[0] && classes[0][1] > 0) {
+    out.push(`${classes[0][0]} \u2014 ${Math.round(classes[0][1] * 100)}% of the tokens`);
+  }
+  if (receipt.retries > 0) out.push(`${receipt.retries} retr${receipt.retries === 1 ? "y" : "ies"}`);
+  return out;
+}
+function recommend(receipt, pricing) {
+  const recs = [];
+  if (receipt.totalTokens === 0) return recs;
+  const comp = whereItWent(receipt);
+  const grade = efficiencyGrade(receipt);
+  const currency = receipt.currency;
+  const top = receipt.byModel.find((m) => m.priced && m.costUsd > 0);
+  const inputAll = comp.freshInput + comp.cacheRead;
+  if (inputAll > 0.25 && comp.cacheRead / Math.max(inputAll, 1e-9) < 0.4 && comp.freshInput > 0.25) {
+    const saving = top ? freshVsCached(pricing, top.model, top.inputTokens) : void 0;
+    recs.push({
+      id: "cache-reuse",
+      severity: "high",
+      title: "Reuse your context instead of resending it",
+      detail: `Only ${Math.round(comp.cacheRead / Math.max(inputAll, 1e-9) * 100)}% of your input came from cache; the rest was fresh, billed roughly 10\xD7 higher for the exact same context. Keep the stable part of the prompt first and unchanged (same system prompt, same file order) so it caches, and avoid \`/clear\` mid-task \u2014 each clear throws the cache away and you pay full price to rebuild it. This is pure savings; the model still sees everything it did before.`,
+      impact: saving && saving > 0 ? `up to ~${money(saving, currency)} if it cached` : void 0
+    });
+  }
+  const wi = whatIf(receipt, pricing);
+  if (wi && wi.savedFrac >= 0.12) {
+    recs.push({
+      id: "model-mix",
+      severity: wi.savedFrac >= 0.3 ? "high" : "medium",
+      title: "Match the model to the task",
+      detail: `Most of this ran on \`${wi.fromModel}\`. Keep it for the real reasoning \u2014 but its plain file-reads and mechanical edits would cost a fraction on \`${wi.toModel}\` at the same quality for that kind of work. Send the easy parts down a tier and keep the hard thinking where it is.`,
+      impact: `~${money(wi.saved, currency)} \xB7 ${Math.round(wi.savedFrac * 100)}% of this`
+    });
+  }
+  if (comp.cacheWrite > 0.1 && comp.cacheWrite > comp.cacheRead * 1.5) {
+    recs.push({
+      id: "cache-churn",
+      severity: "medium",
+      title: "Stop rebuilding the cache every turn",
+      detail: `Cache writes (${Math.round(comp.cacheWrite * 100)}%) outweigh cache reads (${Math.round(comp.cacheRead * 100)}%), which usually means the early context keeps changing between calls so nothing gets reused. Pin the system prompt and the first files; let the volatile parts come last. Same information reaches the model, less of it is rewritten.`
+    });
+  }
+  const retryRate = receipt.entryCount > 0 ? receipt.retries / receipt.entryCount : 0;
+  if (receipt.retries >= 2 && retryRate >= 0.1) {
+    recs.push({
+      id: "retries",
+      severity: "medium",
+      title: "Track down the retries",
+      detail: `${receipt.retries} ${receipt.retries === 1 ? "retry" : "retries"} across ${receipt.entryCount} calls (${Math.round(retryRate * 100)}%). Each one re-sends the full context and produces nothing new. They usually trace to a flaky tool, a malformed tool call, or transient overload \u2014 fixing the cause costs you no capability, just removes the wasted re-sends.`
+    });
+  }
+  const tools = Object.entries(receipt.toolTotals).filter(([, n]) => n > 0);
+  const toolTotal = tools.reduce((s, [, n]) => s + n, 0);
+  if (toolTotal >= 5) {
+    recs.push({
+      id: "tool-calls",
+      severity: "low",
+      title: "Mind the provider tool calls",
+      detail: `${toolTotal} provider tool call${toolTotal === 1 ? "" : "s"} (${tools.map(([t, n]) => `${n}\xD7 ${t.replace(/_/g, " ")}`).join(", ")}) are billed per request on top of tokens. Reuse results you'll need again, or scope searches more tightly \u2014 without skipping the ones that actually inform the work.`
+    });
+  }
+  if (receipt.unpricedModels.length > 0) {
+    recs.push({
+      id: "unpriced",
+      severity: "low",
+      title: "Add prices for unrecognized models",
+      detail: `No price on file for ${receipt.unpricedModels.map((m) => `\`${m}\``).join(", ")}, so their cost is missing from this analysis. Add them to \`.receipt/prices.json\`.`
+    });
+  }
+  recs.sort((a, b) => RANK[a.severity] - RANK[b.severity]);
+  if (recs.length === 0) {
+    recs.push({
+      id: "clean",
+      severity: "low",
+      title: "Already lean",
+      detail: `Good cache reuse, few retries, sensible model mix (grade ${grade.letter}). Nothing to cut without touching the actual work \u2014 keep an eye on it with \`receipt fuel\`.`
+    });
+  }
+  return recs.slice(0, 6);
+}
+function topRecommendation(receipt, pricing) {
+  return recommend(receipt, pricing).filter((r) => r.id !== "clean")[0];
+}
+
+// src/usage-render.ts
 function until(now, target) {
   let s = Math.max(0, Math.round((target - now) / 1e3));
   const d = Math.floor(s / 86400);
@@ -4564,10 +4674,10 @@ function usageBlockMarkdown(receipt, fuel2, extras = {}) {
   lines.push(
     `Efficiency: **${grade.letter}** (${grade.score}/100) \u2014 ${Math.round(grade.cacheHitRate * 100)}% served from cache, ${receipt.retries} ${receipt.retries === 1 ? "retry" : "retries"}.`
   );
-  if (extras.whatIf) {
-    const w = extras.whatIf;
+  if (extras.topTip) {
+    const t = extras.topTip;
     lines.push(
-      `Lever: running \`${w.fromModel}\`'s reads on \`${w.toModel}\` would've saved **$${w.saved.toFixed(2)}** (${Math.round(w.savedFrac * 100)}% of this PR).`
+      `\u{1F4A1} **Biggest win:** ${t.title}${t.impact ? ` (${t.impact})` : ""}. Run \`receipt advice\` for the full list.`
     );
   }
   if (extras.fun) {
@@ -4714,8 +4824,8 @@ function usageSummaryText(receipt, fuel2, extras = {}) {
   if (impact && fuel2.budget) {
     out.push(import_picocolors2.default.dim(`   ${capacityPhrase(fuel2.capacityFiveHour)} left in this 5h window`));
   }
-  if (extras.whatIf) {
-    out.push(import_picocolors2.default.dim(`   lever: ${extras.whatIf.fromModel} reads on ${extras.whatIf.toModel} saves $${extras.whatIf.saved.toFixed(2)}`));
+  if (extras.topTip) {
+    out.push(import_picocolors2.default.dim(`   \u{1F4A1} ${extras.topTip.title}${extras.topTip.impact ? ` (${extras.topTip.impact})` : ""}`));
   }
   if (extras.fun) {
     const eq = funEquivalences(receipt.totalTokens, extras.repoTokens);
@@ -4723,10 +4833,55 @@ function usageSummaryText(receipt, fuel2, extras = {}) {
   }
   return out.join("\n");
 }
+var SEV_MARK = {
+  high: (s) => import_picocolors2.default.red("\u203C " + s),
+  medium: (s) => import_picocolors2.default.yellow("\u26A0 " + s),
+  low: (s) => import_picocolors2.default.dim("\xB7 " + s)
+};
+function wrap(text, width, indent) {
+  const words = text.split(/\s+/);
+  const lines = [];
+  let cur = "";
+  for (const w of words) {
+    if ((cur + " " + w).trim().length > width) {
+      if (cur) lines.push(cur);
+      cur = w;
+    } else {
+      cur = cur ? cur + " " + w : w;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines.map((l) => indent + l).join("\n");
+}
+function renderAdvice(receipt, recs) {
+  const out = [];
+  out.push("");
+  out.push(import_picocolors2.default.bold("\u{1F4A1} Advice \u2014 cut the waste, keep the quality"));
+  out.push("");
+  if (receipt.totalTokens === 0) {
+    out.push(import_picocolors2.default.dim("No usage recorded for this scope yet. Run your agent, then check back."));
+    out.push("");
+    return out.join("\n");
+  }
+  const drivers = costDrivers(receipt);
+  if (drivers.length) {
+    out.push(import_picocolors2.default.bold("What's driving the cost"));
+    for (const d of drivers) out.push("  \u2022 " + d.replace(/`/g, ""));
+    out.push("");
+  }
+  out.push(import_picocolors2.default.bold("Recommendations"));
+  for (const r of recs) {
+    const mark = SEV_MARK[r.severity] ?? ((s) => s);
+    out.push("  " + mark(r.title) + (r.impact ? import_picocolors2.default.green(`   ${r.impact}`) : ""));
+    out.push(import_picocolors2.default.dim(wrap(r.detail.replace(/`/g, ""), 78, "     ")));
+    out.push("");
+  }
+  return out.join("\n");
+}
 
 // src/cli.ts
 var program2 = new Command();
-program2.name("receipt").description("See exactly what your AI coding agent cost \u2014 itemized on every pull request.").version("0.2.1");
+program2.name("receipt").description("See exactly what your AI coding agent cost \u2014 itemized on every pull request.").version("0.3.0");
 function repoRoot() {
   return findRepoRoot();
 }
@@ -4816,7 +4971,7 @@ program2.command("show").description("Print the receipt for the current branch t
     const f = fuel(allEntries, resolveBudget(config, root), Date.now());
     const fun = Boolean(opts.fun) || config.fun === true;
     const summary = usageSummaryText(receipt, f, {
-      whatIf: whatIf(receipt, Pricing.load(root)),
+      topTip: topRecommendation(receipt, Pricing.load(root)),
       fun,
       repoTokens: fun ? estimateRepoTokens(root) : void 0
     });
@@ -4942,6 +5097,17 @@ program2.command("forecast").description("Predict a typical task's impact and yo
   const f = fuel(readLedger(ledgerPath(root)), resolveBudget(config, root), now);
   process.stdout.write(renderForecast(f, now));
 });
+program2.command("advice").alias("tips").description("How to cut wasted tokens \u2014 without making the work worse.").option("--branch <branch>", "branch to scope to (default: current)").option("--base <base>", "base branch to diff against", "main").option("--all", "analyze the whole ledger, ignoring branch").option("--today", "only today's calls").action((opts) => {
+  const root = repoRoot();
+  const receipt = computeReceipt(root, {
+    branch: opts.all ? void 0 : opts.branch,
+    base: opts.base,
+    allEntries: Boolean(opts.all),
+    today: Boolean(opts.today)
+  });
+  const recs = recommend(receipt, Pricing.load(root));
+  process.stdout.write(renderAdvice(receipt, recs));
+});
 program2.command("statusline").description("One-line usage gauge, designed for the Claude Code statusline.").action(() => {
   const root = repoRoot();
   const config = loadConfig(root);
@@ -5005,7 +5171,7 @@ function renderPrMarkdown(root, branch, base) {
     const f = fuel(entries, resolveBudget(config, root), Date.now());
     const fun = config.fun === true;
     const block = usageBlockMarkdown(receipt, f, {
-      whatIf: whatIf(receipt, pricing),
+      topTip: topRecommendation(receipt, pricing),
       fun,
       repoTokens: fun ? estimateRepoTokens(root) : void 0
     });

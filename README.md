@@ -215,6 +215,36 @@ Put the gauge where you work, so awareness happens mid-task rather than after:
 
 Don't want any of it? Set `"usage": false` in `.receipt/config.json` and the block disappears from the PR comment and `receipt show`.
 
+### Cut the waste — `receipt advice`
+
+```bash
+receipt advice          # this branch
+receipt advice --all    # the whole ledger
+```
+
+Receipt reads your usage and tells you what's driving the cost and how to spend fewer tokens — **without making the work worse.** It never suggests thinking less or writing less. It targets pure waste:
+
+- context re-sent at full price instead of cached,
+- the cache rebuilt faster than it's reused,
+- retries that re-send everything for no new output,
+- premium prices paid for mechanical reads a cheaper model handles at the same quality.
+
+Each tip is ranked by impact, with the dollar saving where it can be computed. The single biggest win also rides along on every PR receipt and `receipt show`.
+
+```
+💡 Advice — cut the waste, keep the quality
+
+What's driving the cost
+  • claude-opus-4-8 — 100% of the spend
+  • fresh input — 51% of the tokens
+
+Recommendations
+  ‼ Reuse your context instead of resending it   up to ~$12.15 if it cached
+     Only 8% of your input came from cache; the rest was fresh, billed roughly
+     10× higher for the exact same context. Keep the stable part of the prompt
+     first and unchanged so it caches, and avoid /clear mid-task.
+```
+
 ## Dashboard
 
 ```bash
@@ -263,6 +293,7 @@ Claude Code, Cursor, Aider, Codex CLI, Continue, the OpenAI and Anthropic SDKs, 
 | `receipt fuel` | How much of your plan you're using, and what's left. |
 | `receipt records` | Your heaviest, leanest, and most recent tasks. |
 | `receipt forecast` | A typical task's impact and your weekly runway. |
+| `receipt advice` | How to cut wasted tokens, without making the work worse. |
 | `receipt statusline` | One-line usage gauge for the Claude Code statusline. |
 | `receipt calibrate` | Set your real window budget from a limit you hit. |
 

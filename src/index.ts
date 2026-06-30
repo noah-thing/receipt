@@ -45,9 +45,12 @@ export {
   renderStatusline,
   renderRecords,
   renderForecast,
+  renderAdvice,
   usageBlockMarkdown,
   usageSummaryText,
 } from "./usage-render.js";
+export { recommend, costDrivers, topRecommendation } from "./advice.js";
+export type { Recommendation, Severity } from "./advice.js";
 export type {
   LedgerEntry,
   ModelPrice,
