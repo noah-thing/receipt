@@ -1,5 +1,5 @@
 name: "AI Cost Receipt"
-description: "Post an itemized AI cost receipt (tokens and dollars) as a sticky comment on every pull request. Works with Claude Code, Cursor, Copilot, Aider, and any OpenAI- or Anthropic-compatible tool."
+description: "Itemized AI cost comment (tokens and dollars) on every pull request. Works with Claude Code, Cursor, Copilot, Aider."
 author: "Noah"
 branding:
   icon: "dollar-sign"
