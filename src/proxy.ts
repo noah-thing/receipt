@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import pc from "picocolors";
 import { append } from "./ledger.js";
+import { captureLimits } from "./usage.js";
 import { Pricing, providerOf } from "./pricing.js";
 import { currentBranch, currentSha, repoSlug } from "./git.js";
 import { money, tokens } from "./util.js";
@@ -211,6 +212,9 @@ export function startProxy(opts: ProxyOptions): Promise<{ close: () => void }> {
       resHeaders[key] = value;
     });
     res.writeHead(upstream.status, resHeaders);
+
+    // Learn the real window budget from the provider's rate-limit headers.
+    captureLimits((name) => upstream.headers.get(name), opts.repoRoot);
 
     const contentType = upstream.headers.get("content-type") ?? "";
     const collected: Buffer[] = [];

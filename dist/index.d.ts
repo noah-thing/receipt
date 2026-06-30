@@ -103,10 +103,35 @@ interface Budget {
     /** USD ceiling per day. */
     perDay?: number;
 }
+/** Which subscription tier the user is on, for usage-window math. */
+type PlanId = "pro" | "max5x" | "max20x" | "custom";
+/**
+ * Estimated throughput a plan allows per rolling window, in total tokens.
+ *
+ * Anthropic does not publish exact per-window token budgets, so a preset is a
+ * rough, clearly-labeled estimate. `source` records where the number came from
+ * so the UI can stay honest: a preset guess, a value calibrated from a real
+ * limit you hit, or one observed live from the provider's rate-limit headers.
+ */
+interface PlanBudget {
+    /** Estimated total tokens per 5-hour window. */
+    fiveHour: number;
+    /** Estimated total tokens per 7-day window. */
+    weekly: number;
+    source: "preset" | "calibrated" | "observed" | "custom";
+    /** The plan this budget was derived from, when known. */
+    plan?: PlanId;
+}
 interface ReceiptConfig {
     base?: string;
     currency?: string;
     budget?: Budget;
+    /** Subscription tier, selected with `receipt budget plan <id>`. */
+    plan?: PlanId;
+    /** A custom window budget that overrides the preset for `plan`. */
+    planBudget?: PlanBudget;
+    /** Show playful real-world equivalences by default. */
+    fun?: boolean;
 }
 
 declare class Pricing {
@@ -274,4 +299,203 @@ interface ClaudeImportOptions {
  */
 declare function importClaudeCode(opts: ClaudeImportOptions): Promise<LedgerEntry[]>;
 
-export { type Budget, COMMENT_MARKER, type LedgerEntry, type ModelPrice, type ModelRollup, type PriceBook, Pricing, type Receipt, type ReceiptConfig, append, appendMany, buildDashboardData, buildReceipt, importClaudeCode, importGeneric, knownRequestIds, ledgerPath, providerOf, readLedger, renderMarkdown, renderText, selectEntries };
+declare const FIVE_HOURS_MS: number;
+declare const WEEK_MS: number;
+/**
+ * Rough per-window token budgets by plan. These are ESTIMATES — Anthropic does
+ * not publish exact figures — and exist only so the feature works before you
+ * calibrate. Run the proxy (which reads real rate-limit headers) or
+ * `receipt calibrate` to replace them with your true ceiling.
+ */
+declare const PLAN_PRESETS: Record<Exclude<PlanId, "custom">, PlanBudget>;
+/** Total tokens an entry moved, cached and uncached alike. */
+declare function entryTokens(e: LedgerEntry): number;
+interface WindowState {
+    /** Tokens used inside the current window. */
+    used: number;
+    /** Calls inside the current window. */
+    calls: number;
+    /** When the current window opened (first call inside it). */
+    openedAt: number;
+    /** When the window resets and usage frees up. */
+    resetAt: number;
+    /** Estimated budget for the window, if known. */
+    budget?: number;
+    /** used / budget, when a budget is known. */
+    frac?: number;
+}
+/**
+ * State of one rolling window (5h or weekly).
+ *
+ * Approximates Anthropic's fixed-from-first-use window: the window opens at the
+ * earliest call still inside the look-back and resets a window-length later.
+ */
+declare function windowState(entries: LedgerEntry[], durationMs: number, now: number, budget?: number): WindowState;
+interface TaskRollup {
+    key: string;
+    tokens: number;
+    cost: number;
+    calls: number;
+    firstTs: number;
+    lastTs: number;
+}
+/** Group the ledger into tasks (one per branch) for distribution math. */
+declare function taskRollups(entries: LedgerEntry[]): TaskRollup[];
+declare function quantile(sortedAsc: number[], q: number): number;
+interface TaskSizes {
+    quick: number;
+    pr: number;
+    refactor: number;
+    feature: number;
+    /** True once there is enough history to derive these from real data. */
+    learned: boolean;
+}
+/** Learn typical task sizes (in tokens) from the branch distribution. */
+declare function taskSizes(entries: LedgerEntry[]): TaskSizes;
+interface PersonalStats {
+    taskCount: number;
+    medianTaskTokens: number;
+    medianTaskCost: number;
+    meanTaskTokens: number;
+}
+declare function personalStats(entries: LedgerEntry[]): PersonalStats;
+interface PaceState {
+    /** Tokens used in the last hour. */
+    lastHour: number;
+    /** Tokens that would last all week, per hour. */
+    sustainablePerHour: number;
+    /** lastHour / sustainablePerHour. >1 means burning too fast. */
+    ratio: number;
+    /** Tokens used in the last 24h. */
+    lastDay: number;
+    /** Days of weekly budget left at the last-24h burn rate. */
+    runwayDays?: number;
+    /** When the weekly budget runs dry at that rate. */
+    runsDryAt?: number;
+}
+declare function paceState(entries: LedgerEntry[], weeklyBudget: number | undefined, now: number, weeklyUsed: number): PaceState;
+interface CapacityItem {
+    label: string;
+    count: number;
+}
+/** What the remaining window budget buys, in your own task sizes. */
+declare function capacity(remainingTokens: number, sizes: TaskSizes): CapacityItem[];
+/** Express a token amount in your own work-units, biggest unit that fits first. */
+declare function inWorkUnits(tokensUsed: number, sizes: TaskSizes): string;
+interface EfficiencyGrade {
+    score: number;
+    letter: string;
+    cacheHitRate: number;
+    retryRate: number;
+}
+/**
+ * A heuristic 0–100 grade for how tight a task was. Rewards cache reuse,
+ * punishes retries. Not a precise measure — a nudge, not a verdict.
+ */
+declare function efficiencyGrade(receipt: Receipt): EfficiencyGrade;
+interface Composition {
+    output: number;
+    freshInput: number;
+    cacheRead: number;
+    cacheWrite: number;
+}
+/** Fractions of the total tokens by kind, so you can see where they went. */
+declare function whereItWent(receipt: Receipt): Composition;
+interface WhatIf {
+    fromModel: string;
+    toModel: string;
+    currentCost: number;
+    cheaperCost: number;
+    saved: number;
+    savedFrac: number;
+}
+/**
+ * Estimate the saving from running the heaviest model's *read* work (fresh
+ * input + cache reads) on a cheaper model. The lever everyone has but rarely
+ * pulls: stop paying Opus prices to re-read files.
+ */
+declare function whatIf(receipt: Receipt, pricing: Pricing, cheaper?: string): WhatIf | undefined;
+interface Records {
+    priciest?: TaskRollup;
+    leanest?: TaskRollup;
+    latest?: TaskRollup;
+    /** 1-based rank of the latest task by tokens (1 = heaviest). */
+    latestRank?: number;
+    /** Consecutive most-recent tasks under the median, newest-first. */
+    streakUnderMedian: number;
+}
+declare function records(entries: LedgerEntry[]): Records;
+/** Playful but honest comparisons. Anchored to real token counts. */
+declare function funEquivalences(tokensUsed: number, repoTokens?: number): string[];
+/** A dry one-liner sized to how close to the wall you are. */
+declare function voiceLine(frac: number | undefined): string | undefined;
+interface Fuel {
+    budget?: PlanBudget;
+    fiveHour: WindowState;
+    weekly: WindowState;
+    pace: PaceState;
+    sizes: TaskSizes;
+    /** What the remaining 5h window buys. */
+    capacityFiveHour: CapacityItem[];
+    /** What the remaining weekly window buys. */
+    capacityWeekly: CapacityItem[];
+}
+/** Assemble everything about right-now from the ledger. */
+declare function fuel(entries: LedgerEntry[], budget: PlanBudget | undefined, now: number): Fuel;
+/** A task's share of each window, as fractions. */
+declare function taskImpact(taskTokens: number, budget: PlanBudget | undefined): {
+    fiveHour: number;
+    weekly: number;
+} | undefined;
+/** Read the live/calibrated budget written by the proxy or `receipt calibrate`. */
+declare function readObservedBudget(root: string): PlanBudget | undefined;
+declare function writeObservedBudget(root: string, budget: PlanBudget): void;
+/**
+ * Resolve the budget to use, best source first: a live/calibrated value, then
+ * a custom config value, then the plan preset. Undefined when no plan is set,
+ * in which case the renderers fall back to history-only framings.
+ */
+declare function resolveBudget(config: ReceiptConfig, root: string): PlanBudget | undefined;
+/**
+ * Capture rate-limit headers from a provider response into limits.json.
+ *
+ * Anthropic returns `anthropic-ratelimit-unified-*` headers with the limit and
+ * remaining tokens for the current window. When present, this gives a real
+ * budget with no guessing. Safe to call on every response; it only writes when
+ * it finds a usable limit number.
+ */
+declare function captureLimits(getHeader: (name: string) => string | null, root: string): void;
+/**
+ * Estimate the repo's size in tokens (~4 chars/token) by walking tracked-looking
+ * source files. Bounded so it never crawls a giant tree. Used for the playful
+ * "re-read your repo N×" equivalence.
+ */
+declare function estimateRepoTokens(root: string, maxFiles?: number): number;
+
+interface UsageBlockExtras {
+    whatIf?: WhatIf;
+    repoTokens?: number;
+    fun?: boolean;
+}
+/**
+ * The "% of you" block appended to the pull-request receipt. Only renders the
+ * window-percentage lines when a budget is known; otherwise it leans on the
+ * history-based framings, which always work.
+ */
+declare function usageBlockMarkdown(receipt: Receipt, fuel: Fuel, extras?: UsageBlockExtras): string;
+declare function renderFuel(fuel: Fuel, now: number, extras?: {
+    fun?: boolean;
+    repoTokens?: number;
+}): string;
+/** Compact, plain (Claude Code colorizes its own statusline). */
+declare function renderStatusline(fuel: Fuel, now: number): string;
+declare function renderRecords(entries: LedgerEntry[]): string;
+declare function renderForecast(fuel: Fuel, now: number): string;
+/** Compact usage summary appended to `receipt show`. */
+declare function usageSummaryText(receipt: Receipt, fuel: Fuel, extras?: {
+    whatIf?: WhatIf;
+    fun?: boolean;
+    repoTokens?: number;
+}): string;
+
+export { type Budget, COMMENT_MARKER, FIVE_HOURS_MS, type LedgerEntry, type ModelPrice, type ModelRollup, PLAN_PRESETS, type PlanBudget, type PlanId, type PriceBook, Pricing, type Receipt, type ReceiptConfig, WEEK_MS, append, appendMany, buildDashboardData, buildReceipt, capacity, captureLimits, efficiencyGrade, entryTokens, estimateRepoTokens, fuel, funEquivalences, importClaudeCode, importGeneric, inWorkUnits, knownRequestIds, ledgerPath, paceState, personalStats, providerOf, quantile, readLedger, readObservedBudget, records, renderForecast, renderFuel, renderMarkdown, renderRecords, renderStatusline, renderText, resolveBudget, selectEntries, taskImpact, taskRollups, taskSizes, usageBlockMarkdown, usageSummaryText, voiceLine, whatIf, whereItWent, windowState, writeObservedBudget };

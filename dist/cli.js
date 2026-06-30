@@ -3106,7 +3106,7 @@ var require_picocolors = __commonJS({
 });
 
 // src/cli.ts
-import { writeFileSync as writeFileSync2 } from "fs";
+import { writeFileSync as writeFileSync3 } from "fs";
 import { spawn } from "child_process";
 
 // node_modules/commander/esm.mjs
@@ -3127,7 +3127,7 @@ var {
 } = import_index.default;
 
 // src/cli.ts
-var import_picocolors2 = __toESM(require_picocolors(), 1);
+var import_picocolors3 = __toESM(require_picocolors(), 1);
 
 // src/pricing.ts
 import { readFileSync, existsSync } from "fs";
@@ -3807,6 +3807,314 @@ function importGeneric(filePath, pricing, defaults = {}) {
 // src/proxy.ts
 var import_picocolors = __toESM(require_picocolors(), 1);
 import { createServer } from "http";
+
+// src/usage.ts
+import { existsSync as existsSync6, mkdirSync as mkdirSync3, readdirSync as readdirSync2, readFileSync as readFileSync6, statSync as statSync2, writeFileSync as writeFileSync2 } from "fs";
+import { dirname as dirname4, join as join6 } from "path";
+var FIVE_HOURS_MS = 5 * 60 * 60 * 1e3;
+var WEEK_MS = 7 * 24 * 60 * 60 * 1e3;
+var PLAN_PRESETS = {
+  pro: { fiveHour: 25e5, weekly: 25e6, source: "preset", plan: "pro" },
+  max5x: { fiveHour: 125e5, weekly: 125e6, source: "preset", plan: "max5x" },
+  max20x: { fiveHour: 5e7, weekly: 5e8, source: "preset", plan: "max20x" }
+};
+function entryTokens(e) {
+  return e.inputTokens + e.outputTokens + e.cacheReadTokens + e.cacheWrite5mTokens + e.cacheWrite1hTokens;
+}
+function ms(ts) {
+  return new Date(ts).getTime();
+}
+function windowState(entries, durationMs, now, budget) {
+  const since = now - durationMs;
+  const inWindow = entries.filter((e) => ms(e.ts) >= since);
+  if (inWindow.length === 0) {
+    return { used: 0, calls: 0, openedAt: now, resetAt: now + durationMs, budget, frac: budget ? 0 : void 0 };
+  }
+  const openedAt = Math.min(...inWindow.map((e) => ms(e.ts)));
+  const used = inWindow.reduce((s, e) => s + entryTokens(e), 0);
+  const resetAt = openedAt + durationMs;
+  return {
+    used,
+    calls: inWindow.length,
+    openedAt,
+    resetAt,
+    budget,
+    frac: budget && budget > 0 ? used / budget : void 0
+  };
+}
+function taskRollups(entries) {
+  const map = /* @__PURE__ */ new Map();
+  for (const e of entries) {
+    const key = e.git?.branch || e.label || "(unscoped)";
+    const r = map.get(key) ?? { key, tokens: 0, cost: 0, calls: 0, firstTs: ms(e.ts), lastTs: ms(e.ts) };
+    r.tokens += entryTokens(e);
+    r.cost += e.costUsd ?? 0;
+    r.calls += 1;
+    r.firstTs = Math.min(r.firstTs, ms(e.ts));
+    r.lastTs = Math.max(r.lastTs, ms(e.ts));
+    map.set(key, r);
+  }
+  return [...map.values()];
+}
+function quantile(sortedAsc, q) {
+  if (sortedAsc.length === 0) return 0;
+  const pos = (sortedAsc.length - 1) * q;
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  if (lo === hi) return sortedAsc[lo];
+  return sortedAsc[lo] + (sortedAsc[hi] - sortedAsc[lo]) * (pos - lo);
+}
+var DEFAULT_SIZES = {
+  quick: 5e4,
+  pr: 3e5,
+  refactor: 9e5,
+  feature: 2e6,
+  learned: false
+};
+function taskSizes(entries) {
+  const totals = taskRollups(entries).map((t) => t.tokens).filter((n) => n > 0).sort((a, b) => a - b);
+  if (totals.length < 4) return DEFAULT_SIZES;
+  return {
+    quick: Math.max(1, Math.round(quantile(totals, 0.25))),
+    pr: Math.max(1, Math.round(quantile(totals, 0.5))),
+    refactor: Math.max(1, Math.round(quantile(totals, 0.75))),
+    feature: Math.max(1, Math.round(quantile(totals, 0.9))),
+    learned: true
+  };
+}
+function paceState(entries, weeklyBudget, now, weeklyUsed) {
+  const lastHour = entries.filter((e) => ms(e.ts) >= now - 60 * 60 * 1e3).reduce((s, e) => s + entryTokens(e), 0);
+  const lastDay = entries.filter((e) => ms(e.ts) >= now - 24 * 60 * 60 * 1e3).reduce((s, e) => s + entryTokens(e), 0);
+  const sustainablePerHour = weeklyBudget ? weeklyBudget / 168 : 0;
+  const ratio = sustainablePerHour > 0 ? lastHour / sustainablePerHour : 0;
+  let runwayDays;
+  let runsDryAt;
+  if (weeklyBudget && lastDay > 0) {
+    const remaining = Math.max(0, weeklyBudget - weeklyUsed);
+    runwayDays = remaining / lastDay;
+    runsDryAt = now + runwayDays * 24 * 60 * 60 * 1e3;
+  }
+  return { lastHour, sustainablePerHour, ratio, lastDay, runwayDays, runsDryAt };
+}
+function capacity(remainingTokens, sizes) {
+  const r = Math.max(0, remainingTokens);
+  const items = [
+    { label: "PRs this size", count: Math.floor(r / sizes.pr) },
+    { label: "big refactors", count: Math.floor(r / sizes.refactor) },
+    { label: "quick edits", count: Math.floor(r / sizes.quick) }
+  ];
+  return items.filter((i) => i.count > 0);
+}
+function inWorkUnits(tokensUsed, sizes) {
+  const units = [
+    ["features", sizes.feature],
+    ["refactors", sizes.refactor],
+    ["PRs", sizes.pr],
+    ["quick edits", sizes.quick]
+  ];
+  for (const [name, size] of units) {
+    const n = tokensUsed / size;
+    if (n >= 0.8) return `${n.toFixed(n >= 10 ? 0 : 1)} ${name}`;
+  }
+  return `${Math.max(1, Math.round(tokensUsed / sizes.quick))} quick edits`;
+}
+function efficiencyGrade(receipt) {
+  const inputAll = receipt.byModel.reduce((s, m) => s + m.inputTokens + m.cacheReadTokens, 0);
+  const cacheRead = receipt.byModel.reduce((s, m) => s + m.cacheReadTokens, 0);
+  const cacheHitRate = inputAll > 0 ? cacheRead / inputAll : 0;
+  const retryRate = receipt.entryCount > 0 ? receipt.retries / receipt.entryCount : 0;
+  let score = 55 + 45 * cacheHitRate - 35 * Math.min(1, retryRate);
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  const letter = score >= 90 ? "A" : score >= 80 ? "B" : score >= 70 ? "C" : score >= 60 ? "D" : "F";
+  return { score, letter, cacheHitRate, retryRate };
+}
+function whereItWent(receipt) {
+  const total = receipt.totalTokens || 1;
+  const output = receipt.byModel.reduce((s, m) => s + m.outputTokens, 0);
+  const freshInput = receipt.byModel.reduce((s, m) => s + m.inputTokens, 0);
+  const cacheRead = receipt.byModel.reduce((s, m) => s + m.cacheReadTokens, 0);
+  const cacheWrite = receipt.byModel.reduce((s, m) => s + m.cacheWriteTokens, 0);
+  return {
+    output: output / total,
+    freshInput: freshInput / total,
+    cacheRead: cacheRead / total,
+    cacheWrite: cacheWrite / total
+  };
+}
+function whatIf(receipt, pricing, cheaper = "claude-haiku-4-5") {
+  const top = receipt.byModel.find((m) => m.priced && m.costUsd > 0);
+  if (!top || top.model === cheaper) return void 0;
+  const readTokens = { inputTokens: top.inputTokens, cacheReadTokens: top.cacheReadTokens };
+  const base = {
+    outputTokens: 0,
+    cacheWrite5mTokens: 0,
+    cacheWrite1hTokens: 0,
+    toolCalls: {}
+  };
+  const current = pricing.cost({ model: top.model, ...readTokens, ...base });
+  const swapped = pricing.cost({ model: cheaper, ...readTokens, ...base });
+  if (current === null || swapped === null || current <= swapped) return void 0;
+  const saved = current - swapped;
+  return {
+    fromModel: top.model,
+    toModel: cheaper,
+    currentCost: current,
+    cheaperCost: swapped,
+    saved,
+    savedFrac: receipt.total > 0 ? saved / receipt.total : 0
+  };
+}
+function records(entries) {
+  const tasks = taskRollups(entries).filter((t) => t.tokens > 0 && t.key !== "(unscoped)");
+  if (tasks.length === 0) return { streakUnderMedian: 0 };
+  const byTokens = [...tasks].sort((a, b) => b.tokens - a.tokens);
+  const byRecency = [...tasks].sort((a, b) => b.lastTs - a.lastTs);
+  const median = quantile([...tasks].map((t) => t.tokens).sort((a, b) => a - b), 0.5);
+  const latest = byRecency[0];
+  let streak = 0;
+  for (const t of byRecency) {
+    if (t.tokens < median) streak += 1;
+    else break;
+  }
+  return {
+    priciest: byTokens[0],
+    leanest: byTokens[byTokens.length - 1],
+    latest,
+    latestRank: latest ? byTokens.findIndex((t) => t.key === latest.key) + 1 : void 0,
+    streakUnderMedian: streak
+  };
+}
+function funEquivalences(tokensUsed, repoTokens) {
+  const out = [];
+  if (repoTokens && repoTokens > 0) {
+    const times = tokensUsed / repoTokens;
+    if (times >= 0.3) out.push(`re-reading your entire repo ${times.toFixed(1)}\xD7`);
+  }
+  const WAR_AND_PEACE = 78e4;
+  const NOVEL = 105e3;
+  const wp = tokensUsed / WAR_AND_PEACE;
+  if (wp >= 0.5) out.push(`reading War and Peace ${wp.toFixed(1)}\xD7 over`);
+  const novels = tokensUsed / NOVEL;
+  if (novels >= 1) out.push(`reading ${Math.round(novels)} average novels`);
+  const readerHours = tokensUsed / 330 / 60;
+  if (readerHours >= 1) out.push(`${readerHours.toFixed(0)} hours of human reading`);
+  return out;
+}
+function voiceLine(frac) {
+  if (frac === void 0) return void 0;
+  if (frac >= 1) return "Window's gone. The wall is right there.";
+  if (frac >= 0.85) return "You're nearly out of road for this window.";
+  if (frac >= 0.6) return "Past the halfway mark. Spend the rest on purpose.";
+  if (frac >= 0.3) return "Cruising. Plenty of window left.";
+  return "Barely touched it.";
+}
+function fuel(entries, budget, now) {
+  const fiveHour = windowState(entries, FIVE_HOURS_MS, now, budget?.fiveHour);
+  const weekly = windowState(entries, WEEK_MS, now, budget?.weekly);
+  const sizes = taskSizes(entries);
+  const pace = paceState(entries, budget?.weekly, now, weekly.used);
+  const remaining5h = budget ? Math.max(0, budget.fiveHour - fiveHour.used) : 0;
+  const remainingWk = budget ? Math.max(0, budget.weekly - weekly.used) : 0;
+  return {
+    budget,
+    fiveHour,
+    weekly,
+    pace,
+    sizes,
+    capacityFiveHour: budget ? capacity(remaining5h, sizes) : [],
+    capacityWeekly: budget ? capacity(remainingWk, sizes) : []
+  };
+}
+function taskImpact(taskTokens, budget) {
+  if (!budget) return void 0;
+  return {
+    fiveHour: budget.fiveHour > 0 ? taskTokens / budget.fiveHour : 0,
+    weekly: budget.weekly > 0 ? taskTokens / budget.weekly : 0
+  };
+}
+function limitsPath(root) {
+  return join6(root, ".receipt", "limits.json");
+}
+function readObservedBudget(root) {
+  const path = limitsPath(root);
+  if (!existsSync6(path)) return void 0;
+  try {
+    const b = JSON.parse(readFileSync6(path, "utf8"));
+    if (typeof b.fiveHour === "number" && typeof b.weekly === "number") return b;
+  } catch {
+  }
+  return void 0;
+}
+function writeObservedBudget(root, budget) {
+  const path = limitsPath(root);
+  mkdirSync3(dirname4(path), { recursive: true });
+  writeFileSync2(path, JSON.stringify(budget, null, 2) + "\n", "utf8");
+}
+function resolveBudget(config, root) {
+  const observed = readObservedBudget(root);
+  if (observed) return observed;
+  if (config.planBudget) return config.planBudget;
+  if (config.plan && config.plan !== "custom") return PLAN_PRESETS[config.plan];
+  return void 0;
+}
+function captureLimits(getHeader, root) {
+  const num2 = (name) => {
+    const v = getHeader(name);
+    if (v == null) return void 0;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : void 0;
+  };
+  const limit = num2("anthropic-ratelimit-unified-limit") ?? num2("anthropic-ratelimit-tokens-limit") ?? num2("anthropic-ratelimit-input-tokens-limit");
+  if (!limit || limit <= 0) return;
+  const existing = readObservedBudget(root);
+  const fiveHour = Math.max(limit, existing?.fiveHour ?? 0);
+  const weekly = Math.max(existing?.weekly ?? 0, fiveHour * 5);
+  writeObservedBudget(root, { fiveHour, weekly, source: "observed" });
+}
+var SKIP_DIRS = /* @__PURE__ */ new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  "coverage",
+  ".next",
+  ".turbo",
+  "vendor"
+]);
+var TEXT_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|rb|java|kt|c|h|cpp|cc|cs|php|swift|scala|sh|sql|json|yaml|yml|toml|md|css|scss|html|vue|svelte)$/i;
+function estimateRepoTokens(root, maxFiles = 4e3) {
+  let chars = 0;
+  let seen = 0;
+  const walk = (dir) => {
+    if (seen >= maxFiles) return;
+    let ents;
+    try {
+      ents = readdirSync2(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of ents) {
+      if (seen >= maxFiles) return;
+      if (ent.isDirectory()) {
+        if (SKIP_DIRS.has(ent.name) || ent.name.startsWith(".")) continue;
+        walk(join6(dir, ent.name));
+      } else if (ent.isFile() && TEXT_EXT.test(ent.name)) {
+        try {
+          const size = statSync2(join6(dir, ent.name)).size;
+          if (size <= 2e6) {
+            chars += size;
+            seen += 1;
+          }
+        } catch {
+        }
+      }
+    }
+  };
+  walk(root);
+  return Math.round(chars / 4);
+}
+
+// src/proxy.ts
 var STRIP_HEADERS = /* @__PURE__ */ new Set([
   "host",
   "connection",
@@ -3971,6 +4279,7 @@ function startProxy(opts) {
       resHeaders[key] = value;
     });
     res.writeHead(upstream.status, resHeaders);
+    captureLimits((name) => upstream.headers.get(name), opts.repoRoot);
     const contentType = upstream.headers.get("content-type") ?? "";
     const collected = [];
     if (upstream.body) {
@@ -4028,8 +4337,8 @@ function startProxy(opts) {
 
 // src/dashboard.ts
 import { createServer as createServer2 } from "http";
-import { readFileSync as readFileSync6 } from "fs";
-import { dirname as dirname4, join as join6 } from "path";
+import { readFileSync as readFileSync7 } from "fs";
+import { dirname as dirname5, join as join7 } from "path";
 import { fileURLToPath } from "url";
 var totalTokens = (e) => e.inputTokens + e.outputTokens + e.cacheReadTokens + e.cacheWrite5mTokens + e.cacheWrite1hTokens;
 function buildDashboardData(entries, config = {}) {
@@ -4085,13 +4394,13 @@ function buildDashboardData(entries, config = {}) {
   };
 }
 function templatePath() {
-  const here = dirname4(fileURLToPath(import.meta.url));
+  const here = dirname5(fileURLToPath(import.meta.url));
   for (const candidate of [
-    join6(here, "..", "dashboard", "template.html"),
-    join6(here, "dashboard", "template.html")
+    join7(here, "..", "dashboard", "template.html"),
+    join7(here, "dashboard", "template.html")
   ]) {
     try {
-      readFileSync6(candidate);
+      readFileSync7(candidate);
       return candidate;
     } catch {
     }
@@ -4099,7 +4408,7 @@ function templatePath() {
   throw new Error("Could not locate dashboard/template.html");
 }
 function renderDashboardHtml(data) {
-  const tpl = readFileSync6(templatePath(), "utf8");
+  const tpl = readFileSync7(templatePath(), "utf8");
   return tpl.replace("/*__RECEIPT_DATA__*/", `window.__RECEIPT__ = ${JSON.stringify(data)};`);
 }
 function serveDashboard(repoRoot2, port) {
@@ -4173,14 +4482,232 @@ async function postReceipt(ctx, pr, body) {
   return { action: "created", url: created.html_url };
 }
 
+// src/usage-render.ts
+var import_picocolors2 = __toESM(require_picocolors(), 1);
+function until(now, target) {
+  let s = Math.max(0, Math.round((target - now) / 1e3));
+  const d = Math.floor(s / 86400);
+  s -= d * 86400;
+  const h = Math.floor(s / 3600);
+  s -= h * 3600;
+  const m = Math.floor(s / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h${String(m).padStart(2, "0")}m`;
+  return `${m}m`;
+}
+function clockDate(ms2) {
+  const d = new Date(ms2);
+  const day = d.toLocaleDateString(void 0, { weekday: "short" });
+  let hr = d.getHours();
+  const ampm = hr >= 12 ? "pm" : "am";
+  hr = hr % 12 || 12;
+  return `${day} ${hr}${ampm}`;
+}
+function dot(frac) {
+  if (frac === void 0) return "\u26AA";
+  if (frac >= 1) return "\u{1F534}";
+  if (frac >= 0.85) return "\u{1F7E0}";
+  if (frac >= 0.6) return "\u{1F7E1}";
+  return "\u{1F7E2}";
+}
+function sourceNote(b) {
+  if (!b) return "";
+  if (b.source === "observed") return "from live rate-limit headers";
+  if (b.source === "calibrated") return "calibrated from a real limit you hit";
+  if (b.source === "custom") return "your custom budget";
+  return "estimated preset \u2014 run the proxy or `receipt calibrate` for real numbers";
+}
+function capacityPhrase(items) {
+  if (items.length === 0) return "not enough left for a full task";
+  return items.map((i) => `~${i.count} ${i.label}`).join(" \xB7 ");
+}
+function usageBlockMarkdown(receipt, fuel2, extras = {}) {
+  if (receipt.totalTokens === 0) return "";
+  const lines = [];
+  lines.push("<details><summary>\u{1F50B} <b>Usage impact</b> \u2014 what this cost <i>you</i></summary>");
+  lines.push("");
+  const impact = taskImpact(receipt.totalTokens, fuel2.budget);
+  if (impact && fuel2.budget) {
+    lines.push(
+      `This PR ate **${(impact.fiveHour * 100).toFixed(1)}%** of a 5-hour window and **${(impact.weekly * 100).toFixed(1)}%** of your weekly cap.`
+    );
+    const left = capacityPhrase(fuel2.capacityFiveHour);
+    lines.push(`Right now you've got **${left}** left in this 5-hour window.`);
+    lines.push("");
+  }
+  lines.push(`That's about **${inWorkUnits(receipt.totalTokens, fuel2.sizes)}** in your own work.`);
+  const grade = efficiencyGrade(receipt);
+  lines.push(
+    `Efficiency: **${grade.letter}** (${grade.score}/100) \u2014 ${Math.round(grade.cacheHitRate * 100)}% served from cache, ${receipt.retries} ${receipt.retries === 1 ? "retry" : "retries"}.`
+  );
+  if (extras.whatIf) {
+    const w = extras.whatIf;
+    lines.push(
+      `Lever: running \`${w.fromModel}\`'s reads on \`${w.toModel}\` would've saved **$${w.saved.toFixed(2)}** (${Math.round(w.savedFrac * 100)}% of this PR).`
+    );
+  }
+  if (extras.fun) {
+    const eq = funEquivalences(receipt.totalTokens, extras.repoTokens);
+    if (eq.length) lines.push(`For scale: ${eq.slice(0, 2).join(", ")}.`);
+  }
+  if (fuel2.budget) {
+    lines.push("");
+    lines.push(`<sub>window budget ${sourceNote(fuel2.budget)}</sub>`);
+  }
+  lines.push("");
+  lines.push("</details>");
+  return lines.join("\n");
+}
+function gaugeLine(label, w, now) {
+  if (w.budget && w.frac !== void 0) {
+    const bar = progressBar(w.frac, 24);
+    const color = w.frac >= 1 ? import_picocolors2.default.red : w.frac >= 0.85 ? import_picocolors2.default.yellow : w.frac >= 0.6 ? import_picocolors2.default.yellow : import_picocolors2.default.green;
+    return `${dot(w.frac)} ${import_picocolors2.default.bold(label.padEnd(14))} ${color(bar)} ${import_picocolors2.default.bold(`${Math.round(w.frac * 100)}%`)}  ` + import_picocolors2.default.dim(`${tokens(w.used)} / ${tokens(w.budget)} \xB7 resets in ${until(now, w.resetAt)}`);
+  }
+  return `${dot(void 0)} ${import_picocolors2.default.bold(label.padEnd(14))} ${import_picocolors2.default.dim(`${tokens(w.used)} used \xB7 resets in ${until(now, w.resetAt)} \xB7 no plan set`)}`;
+}
+function renderFuel(fuel2, now, extras = {}) {
+  const out = [];
+  out.push("");
+  out.push(import_picocolors2.default.bold("\u{1F50B} Fuel \u2014 how much of you this is using"));
+  out.push("");
+  out.push(gaugeLine("5-hour window", fuel2.fiveHour, now));
+  out.push(gaugeLine("weekly cap", fuel2.weekly, now));
+  out.push("");
+  if (fuel2.budget) {
+    out.push(import_picocolors2.default.bold("You could still do"));
+    out.push(`  5h: ${capacityPhrase(fuel2.capacityFiveHour)}`);
+    out.push(`  week: ${capacityPhrase(fuel2.capacityWeekly)}`);
+    out.push("");
+    const p = fuel2.pace;
+    if (p.sustainablePerHour > 0) {
+      const arrow = p.ratio > 1.25 ? import_picocolors2.default.red(`\u2191 ${p.ratio.toFixed(1)}\xD7 too fast`) : p.ratio < 0.75 ? import_picocolors2.default.green("\u2193 sustainable") : import_picocolors2.default.yellow("\u2248 on pace");
+      out.push(`Pace: ${arrow} ${import_picocolors2.default.dim(`(${tokens(p.lastHour)}/hr vs ${tokens(p.sustainablePerHour)}/hr sustainable)`)}`);
+    }
+    if (p.runsDryAt && p.runwayDays !== void 0 && p.runwayDays < 14) {
+      out.push(import_picocolors2.default.dim(`At today's burn, the weekly budget runs dry ~${clockDate(p.runsDryAt)}.`));
+    }
+    const vl = voiceLine(fuel2.weekly.frac);
+    if (vl) out.push(import_picocolors2.default.italic(import_picocolors2.default.dim(`\u201C${vl}\u201D`)));
+    out.push("");
+    out.push(import_picocolors2.default.dim(`window budget ${sourceNote(fuel2.budget)}`));
+  } else {
+    out.push(import_picocolors2.default.dim("No plan set, so percentages are off. Set one to unlock the gauges:"));
+    out.push(import_picocolors2.default.dim("  receipt budget plan pro|max5x|max20x"));
+    out.push(import_picocolors2.default.dim("  \u2026or run `receipt proxy` and it learns your real limit from the provider."));
+    if (fuel2.sizes.learned) {
+      out.push("");
+      out.push(import_picocolors2.default.dim(`Your typical sizes: quick ${tokens(fuel2.sizes.quick)} \xB7 PR ${tokens(fuel2.sizes.pr)} \xB7 refactor ${tokens(fuel2.sizes.refactor)} \xB7 feature ${tokens(fuel2.sizes.feature)} tokens.`));
+    }
+  }
+  out.push("");
+  return out.join("\n");
+}
+function renderStatusline(fuel2, now) {
+  const parts = [];
+  if (fuel2.fiveHour.frac !== void 0) {
+    parts.push(`${dot(fuel2.fiveHour.frac)} 5h ${Math.round(fuel2.fiveHour.frac * 100)}%`);
+  } else {
+    parts.push(`5h ${tokens(fuel2.fiveHour.used)}`);
+  }
+  if (fuel2.weekly.frac !== void 0) parts.push(`wk ${Math.round(fuel2.weekly.frac * 100)}%`);
+  const p = fuel2.pace;
+  if (p.sustainablePerHour > 0 && p.ratio >= 1.25) parts.push(`\u2191${p.ratio.toFixed(1)}x`);
+  if (fuel2.budget && fuel2.capacityFiveHour[0]) {
+    parts.push(`~${fuel2.capacityFiveHour[0].count} ${fuel2.capacityFiveHour[0].label}`);
+  }
+  if (fuel2.budget && fuel2.fiveHour.frac !== void 0) {
+    parts.push(`resets ${until(now, fuel2.fiveHour.resetAt)}`);
+  }
+  return "\u{1F50B} " + parts.join(" \xB7 ");
+}
+function renderRecords(entries) {
+  const r = records(entries);
+  const out = [];
+  out.push("");
+  out.push(import_picocolors2.default.bold("\u{1F3C6} Your usage records"));
+  out.push("");
+  if (!r.priciest) {
+    out.push(import_picocolors2.default.dim("Not enough branch history yet. Keep working and check back."));
+    out.push("");
+    return out.join("\n");
+  }
+  out.push(`\u{1F947} Heaviest task: ${import_picocolors2.default.bold(r.priciest.key)} ${import_picocolors2.default.dim(`(${tokens(r.priciest.tokens)} tokens)`)}`);
+  if (r.leanest) out.push(`\u{1FAB6} Leanest task:  ${import_picocolors2.default.bold(r.leanest.key)} ${import_picocolors2.default.dim(`(${tokens(r.leanest.tokens)} tokens)`)}`);
+  if (r.latest && r.latestRank) {
+    out.push(
+      `\u{1F4CD} Most recent:  ${import_picocolors2.default.bold(r.latest.key)} \u2014 #${r.latestRank} heaviest of ${r.priciest ? "all" : ""} your tasks`
+    );
+  }
+  if (r.streakUnderMedian > 0) {
+    out.push(import_picocolors2.default.green(`\u{1F525} Streak: ${r.streakUnderMedian} task(s) in a row under your median. Tidy.`));
+  }
+  out.push("");
+  return out.join("\n");
+}
+function renderForecast(fuel2, now) {
+  const out = [];
+  out.push("");
+  out.push(import_picocolors2.default.bold("\u{1F52E} Forecast"));
+  out.push("");
+  const typical = fuel2.sizes.pr;
+  out.push(`A typical task for you runs ~${tokens(typical)} tokens.`);
+  if (fuel2.budget) {
+    const imp5 = typical / fuel2.budget.fiveHour * 100;
+    out.push(`That's ~${imp5.toFixed(1)}% of a 5-hour window each.`);
+    const left = fuel2.budget.fiveHour - fuel2.fiveHour.used;
+    const fits = Math.floor(Math.max(0, left) / typical);
+    out.push(
+      fits > 0 ? import_picocolors2.default.green(`You can fit ~${fits} more before this window resets in ${until(now, fuel2.fiveHour.resetAt)}.`) : import_picocolors2.default.yellow(`Not enough window left for another typical task; resets in ${until(now, fuel2.fiveHour.resetAt)}.`)
+    );
+    if (fuel2.pace.runsDryAt && fuel2.pace.runwayDays !== void 0 && fuel2.pace.runwayDays < 14) {
+      out.push(import_picocolors2.default.dim(`Weekly runway at today's pace: ~${fuel2.pace.runwayDays.toFixed(1)} days (dry ~${clockDate(fuel2.pace.runsDryAt)}).`));
+    }
+  } else {
+    out.push(import_picocolors2.default.dim("Set a plan (`receipt budget plan \u2026`) to forecast against your real window."));
+  }
+  out.push("");
+  return out.join("\n");
+}
+function whereItWentText(receipt) {
+  const c = whereItWent(receipt);
+  const pctOf = (n) => `${Math.round(n * 100)}%`;
+  return `where it went: ${pctOf(c.output)} output \xB7 ${pctOf(c.freshInput)} fresh input \xB7 ${pctOf(c.cacheRead)} cache reads \xB7 ${pctOf(c.cacheWrite)} cache writes`;
+}
+function usageSummaryText(receipt, fuel2, extras = {}) {
+  if (receipt.totalTokens === 0) return "";
+  const out = [];
+  const impact = taskImpact(receipt.totalTokens, fuel2.budget);
+  const grade = efficiencyGrade(receipt);
+  const head = [];
+  if (impact && fuel2.budget) {
+    head.push(`${(impact.fiveHour * 100).toFixed(1)}% of 5h \xB7 ${(impact.weekly * 100).toFixed(1)}% of week`);
+  }
+  head.push(`\u2248 ${inWorkUnits(receipt.totalTokens, fuel2.sizes)}`);
+  head.push(`grade ${grade.letter} (${grade.score}/100)`);
+  out.push(import_picocolors2.default.bold("\u{1F50B} ") + head.join(import_picocolors2.default.dim(" \xB7 ")));
+  out.push(import_picocolors2.default.dim("   " + whereItWentText(receipt)));
+  if (impact && fuel2.budget) {
+    out.push(import_picocolors2.default.dim(`   ${capacityPhrase(fuel2.capacityFiveHour)} left in this 5h window`));
+  }
+  if (extras.whatIf) {
+    out.push(import_picocolors2.default.dim(`   lever: ${extras.whatIf.fromModel} reads on ${extras.whatIf.toModel} saves $${extras.whatIf.saved.toFixed(2)}`));
+  }
+  if (extras.fun) {
+    const eq = funEquivalences(receipt.totalTokens, extras.repoTokens);
+    if (eq.length) out.push(import_picocolors2.default.dim("   = " + eq.slice(0, 2).join(", ")));
+  }
+  return out.join("\n");
+}
+
 // src/cli.ts
 var program2 = new Command();
-program2.name("receipt").description("See exactly what your AI coding agent cost \u2014 itemized on every pull request.").version("0.1.0");
+program2.name("receipt").description("See exactly what your AI coding agent cost \u2014 itemized on every pull request.").version("0.2.0");
 function repoRoot() {
   return findRepoRoot();
 }
 function fail(message) {
-  process.stderr.write(import_picocolors2.default.red("\u2717 ") + message + "\n");
+  process.stderr.write(import_picocolors3.default.red("\u2717 ") + message + "\n");
   process.exit(1);
 }
 program2.command("proxy").description("Run a logging proxy. Point ANTHROPIC_BASE_URL / OPENAI_BASE_URL at it.").option("-p, --port <port>", "port to listen on", "8787").option("--anthropic-url <url>", "upstream Anthropic API", "https://api.anthropic.com").option("--openai-url <url>", "upstream OpenAI API", "https://api.openai.com").option("-q, --quiet", "do not print a line per call").action(async (opts) => {
@@ -4196,10 +4723,10 @@ program2.command("proxy").description("Run a logging proxy. Point ANTHROPIC_BASE
     quiet: Boolean(opts.quiet)
   });
   process.stderr.write(
-    import_picocolors2.default.green("\u25CF ") + `receipt proxy on ${import_picocolors2.default.bold(`http://localhost:${port}`)}
-` + import_picocolors2.default.dim(`  export ANTHROPIC_BASE_URL=http://localhost:${port}
-`) + import_picocolors2.default.dim(`  export OPENAI_BASE_URL=http://localhost:${port}/v1
-`) + import_picocolors2.default.dim(`  logging to ${ledgerPath(root)}
+    import_picocolors3.default.green("\u25CF ") + `receipt proxy on ${import_picocolors3.default.bold(`http://localhost:${port}`)}
+` + import_picocolors3.default.dim(`  export ANTHROPIC_BASE_URL=http://localhost:${port}
+`) + import_picocolors3.default.dim(`  export OPENAI_BASE_URL=http://localhost:${port}/v1
+`) + import_picocolors3.default.dim(`  logging to ${ledgerPath(root)}
 `)
   );
   const shutdown = () => {
@@ -4235,18 +4762,18 @@ importCmd.command("generic <file>").description("Import a JSON/JSONL file of usa
 });
 function writeEntries(root, entries, source) {
   if (entries.length === 0) {
-    process.stderr.write(import_picocolors2.default.dim(`Nothing new to import from ${source}.
+    process.stderr.write(import_picocolors3.default.dim(`Nothing new to import from ${source}.
 `));
     return;
   }
   for (const e of entries) append(root, e);
   const total = entries.reduce((s, e) => s + (e.costUsd ?? 0), 0);
   process.stderr.write(
-    import_picocolors2.default.green("\u2713 ") + `imported ${import_picocolors2.default.bold(String(entries.length))} calls from ${source} \xB7 ${money(total)}
+    import_picocolors3.default.green("\u2713 ") + `imported ${import_picocolors3.default.bold(String(entries.length))} calls from ${source} \xB7 ${money(total)}
 `
   );
 }
-program2.command("show").description("Print the receipt for the current branch to the terminal.").option("--branch <branch>", "branch to scope to (default: current)").option("--base <base>", "base branch to diff against", "main").option("--all", "every entry in the ledger, ignoring branch").option("--today", "only today's calls").option("--json", "machine-readable output").action((opts) => {
+program2.command("show").description("Print the receipt for the current branch to the terminal.").option("--branch <branch>", "branch to scope to (default: current)").option("--base <base>", "base branch to diff against", "main").option("--all", "every entry in the ledger, ignoring branch").option("--today", "only today's calls").option("--fun", "include playful real-world equivalences").option("--json", "machine-readable output").action((opts) => {
   const root = repoRoot();
   const config = loadConfig(root);
   const receipt = computeReceipt(root, {
@@ -4259,14 +4786,24 @@ program2.command("show").description("Print the receipt for the current branch t
     process.stdout.write(JSON.stringify(receipt, null, 2) + "\n");
     return;
   }
-  process.stdout.write("\n" + colorizeText(renderText(receipt), config) + "\n\n");
+  let out = "\n" + colorizeText(renderText(receipt), config) + "\n";
+  const allEntries = readLedger(ledgerPath(root));
+  const f = fuel(allEntries, resolveBudget(config, root), Date.now());
+  const fun = Boolean(opts.fun) || config.fun === true;
+  const summary = usageSummaryText(receipt, f, {
+    whatIf: whatIf(receipt, Pricing.load(root)),
+    fun,
+    repoTokens: fun ? estimateRepoTokens(root) : void 0
+  });
+  if (summary) out += "\n" + summary + "\n";
+  process.stdout.write(out + "\n");
 });
 program2.command("pr").description("Render the pull-request receipt as markdown (prints to stdout).").option("--branch <branch>", "branch to scope to (default: current)").option("--base <base>", "base branch to diff against", "main").option("--out <file>", "write to a file instead of stdout").action((opts) => {
   const root = repoRoot();
   const md = renderPrMarkdown(root, opts.branch, opts.base);
   if (opts.out) {
-    writeFileSync2(opts.out, md, "utf8");
-    process.stderr.write(import_picocolors2.default.green("\u2713 ") + `wrote ${opts.out}
+    writeFileSync3(opts.out, md, "utf8");
+    process.stderr.write(import_picocolors3.default.green("\u2713 ") + `wrote ${opts.out}
 `);
   } else {
     process.stdout.write(md + "\n");
@@ -4288,14 +4825,14 @@ program2.command("post").description("Post or update the receipt as a sticky com
   }
   if (!pr) fail("No open pull request found. Pass --pr <number>.");
   const result = await postReceipt({ repo: ctx.repo, token: ctx.token }, pr, md);
-  process.stderr.write(import_picocolors2.default.green("\u2713 ") + `${result.action} receipt on ${ctx.repo}#${pr}
+  process.stderr.write(import_picocolors3.default.green("\u2713 ") + `${result.action} receipt on ${ctx.repo}#${pr}
   ${result.url}
 `);
 });
 program2.command("dashboard").description("Serve a local dashboard of all recorded spend.").option("-p, --port <port>", "port", "4123").option("--no-open", "do not open a browser").action(async (opts) => {
   const root = repoRoot();
   const { url } = await serveDashboard(root, Number(opts.port));
-  process.stderr.write(import_picocolors2.default.green("\u25CF ") + `dashboard on ${import_picocolors2.default.bold(url)} ${import_picocolors2.default.dim("(ctrl-c to stop)")}
+  process.stderr.write(import_picocolors3.default.green("\u25CF ") + `dashboard on ${import_picocolors3.default.bold(url)} ${import_picocolors3.default.dim("(ctrl-c to stop)")}
 `);
   if (opts.open !== false) openBrowser(url);
 });
@@ -4310,9 +4847,9 @@ program2.command("wrapped").description("A shareable summary of recent AI spend.
   const share = data.byModel.length ? Math.round((top?.cost ?? 0) / (data.totals.cost || 1) * 100) : 0;
   const lines = [
     "",
-    import_picocolors2.default.bold(`\u{1F9FE} Receipt \u2014 last ${days} days`),
+    import_picocolors3.default.bold(`\u{1F9FE} Receipt \u2014 last ${days} days`),
     "",
-    `  ${import_picocolors2.default.bold(money(data.totals.cost))} across ${data.totals.calls} calls and ${data.byBranch.length} branches`,
+    `  ${import_picocolors3.default.bold(money(data.totals.cost))} across ${data.totals.calls} calls and ${data.byBranch.length} branches`,
     `  ${tokens(data.totals.tokens)} tokens`,
     top ? `  ${top.model} did the heavy lifting (${share}% of spend)` : "",
     data.topCalls[0] ? `  priciest single call: ${money(data.topCalls[0].cost)} (${data.topCalls[0].model})` : "",
@@ -4331,16 +4868,76 @@ budgetCmd.command("set <scope> <amount>").description("Set a budget. scope is 'p
   else if (scope === "day") config.budget.perDay = value;
   else fail("Scope must be 'pr' or 'day'.");
   saveConfig(root, config);
-  process.stderr.write(import_picocolors2.default.green("\u2713 ") + `budget per ${scope} set to ${money(value)}
+  process.stderr.write(import_picocolors3.default.green("\u2713 ") + `budget per ${scope} set to ${money(value)}
 `);
 });
+budgetCmd.command("plan <id>").description("Set your subscription tier for usage-window math: pro, max5x, or max20x.").action((id) => {
+  const root = repoRoot();
+  if (!(id in PLAN_PRESETS)) fail("Plan must be one of: pro, max5x, max20x.");
+  const config = loadConfig(root);
+  config.plan = id;
+  saveConfig(root, config);
+  const p = PLAN_PRESETS[id];
+  process.stderr.write(
+    import_picocolors3.default.green("\u2713 ") + `plan set to ${import_picocolors3.default.bold(id)} ` + import_picocolors3.default.dim(`(~${tokens(p.fiveHour)} per 5h, ~${tokens(p.weekly)} per week \u2014 estimates; calibrate for real numbers)
+`)
+  );
+});
 budgetCmd.action(() => {
-  const config = loadConfig(repoRoot());
+  const root = repoRoot();
+  const config = loadConfig(root);
   const b = config.budget ?? {};
+  const wb = resolveBudget(config, root);
   process.stdout.write(
     `per PR:  ${b.perPr ? money(b.perPr) : "\u2014"}
 per day: ${b.perDay ? money(b.perDay) : "\u2014"}
+plan:    ${config.plan ?? "\u2014"}
+window:  ${wb ? `~${tokens(wb.fiveHour)} / 5h \xB7 ~${tokens(wb.weekly)} / week (${wb.source})` : "\u2014 (set one with `receipt budget plan \u2026`)"}
 `
+  );
+});
+program2.command("fuel").description("How much of your plan you're using right now, and what's left.").option("--fun", "include playful real-world equivalences").action((opts) => {
+  const root = repoRoot();
+  const config = loadConfig(root);
+  const entries = readLedger(ledgerPath(root));
+  const now = Date.now();
+  const f = fuel(entries, resolveBudget(config, root), now);
+  const fun = Boolean(opts.fun) || config.fun === true;
+  process.stdout.write(renderFuel(f, now, { fun, repoTokens: fun ? estimateRepoTokens(root) : void 0 }));
+});
+program2.command("records").description("Your heaviest, leanest, and most recent tasks, ranked.").action(() => {
+  const root = repoRoot();
+  process.stdout.write(renderRecords(readLedger(ledgerPath(root))));
+});
+program2.command("forecast").description("Predict a typical task's impact and your weekly runway.").action(() => {
+  const root = repoRoot();
+  const config = loadConfig(root);
+  const now = Date.now();
+  const f = fuel(readLedger(ledgerPath(root)), resolveBudget(config, root), now);
+  process.stdout.write(renderForecast(f, now));
+});
+program2.command("statusline").description("One-line usage gauge, designed for the Claude Code statusline.").action(() => {
+  const root = repoRoot();
+  const config = loadConfig(root);
+  const now = Date.now();
+  const f = fuel(readLedger(ledgerPath(root)), resolveBudget(config, root), now);
+  process.stdout.write(renderStatusline(f, now) + "\n");
+});
+program2.command("calibrate").description("Set your real window budget from a limit you just hit.").argument("[tokens]", "tokens used at the wall; omit to use the current window's usage").option("--window <w>", "which window you hit: 5h or week", "5h").action((tokArg, opts) => {
+  const root = repoRoot();
+  const entries = readLedger(ledgerPath(root));
+  const now = Date.now();
+  const isWeek = String(opts.window).toLowerCase().startsWith("w");
+  const current = isWeek ? windowState(entries, WEEK_MS, now).used : windowState(entries, FIVE_HOURS_MS, now).used;
+  const used = tokArg ? Number(tokArg) : current;
+  if (!Number.isFinite(used) || used <= 0) {
+    fail("Give a positive token count, or run the proxy/importer first so there's usage to read.");
+  }
+  const budget = isWeek ? { fiveHour: Math.round(used / 5), weekly: Math.round(used), source: "calibrated" } : { fiveHour: Math.round(used), weekly: Math.round(used * 5), source: "calibrated" };
+  writeObservedBudget(root, budget);
+  process.stderr.write(
+    import_picocolors3.default.green("\u2713 ") + `calibrated from your ${isWeek ? "weekly" : "5-hour"} wall: ` + import_picocolors3.default.bold(`~${tokens(budget.fiveHour)} / 5h \xB7 ~${tokens(budget.weekly)} / week
+`)
   );
 });
 function computeReceipt(root, o) {
@@ -4372,14 +4969,24 @@ function renderPrMarkdown(root, branch, base) {
   const { shas, sinceTs } = rangeFor(root, base, b);
   const selected = selectEntries(entries, { branch: b, rangeShas: shas, sinceTs, currency });
   const receipt = buildReceipt(selected, { branch: b, base, currency });
-  return renderMarkdown(receipt, {
+  const pricing = Pricing.load(root);
+  let md = renderMarkdown(receipt, {
     budget: config.budget,
     series: selected.map((e) => ({ ts: e.ts, cost: e.costUsd ?? 0 })),
-    priceUpdated: Pricing.load(root).updated()
+    priceUpdated: pricing.updated()
   });
+  const f = fuel(entries, resolveBudget(config, root), Date.now());
+  const fun = config.fun === true;
+  const block = usageBlockMarkdown(receipt, f, {
+    whatIf: whatIf(receipt, pricing),
+    fun,
+    repoTokens: fun ? estimateRepoTokens(root) : void 0
+  });
+  if (block) md += "\n\n" + block;
+  return md;
 }
 function colorizeText(text, _config) {
-  return text.split("\n").map((line, i) => i === 0 ? import_picocolors2.default.bold(line) : i === 1 ? import_picocolors2.default.green(line) : line).join("\n");
+  return text.split("\n").map((line, i) => i === 0 ? import_picocolors3.default.bold(line) : i === 1 ? import_picocolors3.default.green(line) : line).join("\n");
 }
 function openBrowser(url) {
   const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";

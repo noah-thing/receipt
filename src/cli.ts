@@ -16,14 +16,33 @@ import { startProxy } from "./proxy.js";
 import { buildDashboardData, serveDashboard } from "./dashboard.js";
 import { findPrForBranch, postReceipt } from "./github.js";
 import { money, tokens } from "./util.js";
-import type { LedgerEntry } from "./types.js";
+import {
+  fuel,
+  resolveBudget,
+  writeObservedBudget,
+  windowState,
+  whatIf,
+  estimateRepoTokens,
+  PLAN_PRESETS,
+  FIVE_HOURS_MS,
+  WEEK_MS,
+} from "./usage.js";
+import {
+  renderFuel,
+  renderRecords,
+  renderForecast,
+  renderStatusline,
+  usageBlockMarkdown,
+  usageSummaryText,
+} from "./usage-render.js";
+import type { LedgerEntry, PlanBudget, PlanId } from "./types.js";
 
 const program = new Command();
 
 program
   .name("receipt")
   .description("See exactly what your AI coding agent cost — itemized on every pull request.")
-  .version("0.1.0");
+  .version("0.2.0");
 
 function repoRoot(): string {
   return findRepoRoot();
@@ -129,6 +148,7 @@ program
   .option("--base <base>", "base branch to diff against", "main")
   .option("--all", "every entry in the ledger, ignoring branch")
   .option("--today", "only today's calls")
+  .option("--fun", "include playful real-world equivalences")
   .option("--json", "machine-readable output")
   .action((opts) => {
     const root = repoRoot();
@@ -143,7 +163,18 @@ program
       process.stdout.write(JSON.stringify(receipt, null, 2) + "\n");
       return;
     }
-    process.stdout.write("\n" + colorizeText(renderText(receipt), config) + "\n\n");
+    let out = "\n" + colorizeText(renderText(receipt), config) + "\n";
+    // The usage block: what this branch cost *you*, against your plan window.
+    const allEntries = readLedger(ledgerPath(root));
+    const f = fuel(allEntries, resolveBudget(config, root), Date.now());
+    const fun = Boolean(opts.fun) || config.fun === true;
+    const summary = usageSummaryText(receipt, f, {
+      whatIf: whatIf(receipt, Pricing.load(root)),
+      fun,
+      repoTokens: fun ? estimateRepoTokens(root) : undefined,
+    });
+    if (summary) out += "\n" + summary + "\n";
+    process.stdout.write(out + "\n");
   });
 
 // ── pr (render markdown) ─────────────────────────────────────────────────────
@@ -257,13 +288,111 @@ budgetCmd
     saveConfig(root, config);
     process.stderr.write(pc.green("✓ ") + `budget per ${scope} set to ${money(value)}\n`);
   });
+budgetCmd
+  .command("plan <id>")
+  .description("Set your subscription tier for usage-window math: pro, max5x, or max20x.")
+  .action((id: string) => {
+    const root = repoRoot();
+    if (!(id in PLAN_PRESETS)) fail("Plan must be one of: pro, max5x, max20x.");
+    const config = loadConfig(root);
+    config.plan = id as PlanId;
+    saveConfig(root, config);
+    const p = PLAN_PRESETS[id as Exclude<PlanId, "custom">];
+    process.stderr.write(
+      pc.green("✓ ") +
+        `plan set to ${pc.bold(id)} ` +
+        pc.dim(`(~${tokens(p.fiveHour)} per 5h, ~${tokens(p.weekly)} per week — estimates; calibrate for real numbers)\n`),
+    );
+  });
 budgetCmd.action(() => {
-  const config = loadConfig(repoRoot());
+  const root = repoRoot();
+  const config = loadConfig(root);
   const b = config.budget ?? {};
+  const wb = resolveBudget(config, root);
   process.stdout.write(
-    `per PR:  ${b.perPr ? money(b.perPr) : "—"}\nper day: ${b.perDay ? money(b.perDay) : "—"}\n`,
+    `per PR:  ${b.perPr ? money(b.perPr) : "—"}\n` +
+      `per day: ${b.perDay ? money(b.perDay) : "—"}\n` +
+      `plan:    ${config.plan ?? "—"}\n` +
+      `window:  ${wb ? `~${tokens(wb.fiveHour)} / 5h · ~${tokens(wb.weekly)} / week (${wb.source})` : "— (set one with `receipt budget plan …`)"}\n`,
   );
 });
+
+// ── fuel (current usage state) ───────────────────────────────────────────────
+program
+  .command("fuel")
+  .description("How much of your plan you're using right now, and what's left.")
+  .option("--fun", "include playful real-world equivalences")
+  .action((opts) => {
+    const root = repoRoot();
+    const config = loadConfig(root);
+    const entries = readLedger(ledgerPath(root));
+    const now = Date.now();
+    const f = fuel(entries, resolveBudget(config, root), now);
+    const fun = Boolean(opts.fun) || config.fun === true;
+    process.stdout.write(renderFuel(f, now, { fun, repoTokens: fun ? estimateRepoTokens(root) : undefined }));
+  });
+
+// ── records ──────────────────────────────────────────────────────────────────
+program
+  .command("records")
+  .description("Your heaviest, leanest, and most recent tasks, ranked.")
+  .action(() => {
+    const root = repoRoot();
+    process.stdout.write(renderRecords(readLedger(ledgerPath(root))));
+  });
+
+// ── forecast ─────────────────────────────────────────────────────────────────
+program
+  .command("forecast")
+  .description("Predict a typical task's impact and your weekly runway.")
+  .action(() => {
+    const root = repoRoot();
+    const config = loadConfig(root);
+    const now = Date.now();
+    const f = fuel(readLedger(ledgerPath(root)), resolveBudget(config, root), now);
+    process.stdout.write(renderForecast(f, now));
+  });
+
+// ── statusline (for Claude Code) ─────────────────────────────────────────────
+program
+  .command("statusline")
+  .description("One-line usage gauge, designed for the Claude Code statusline.")
+  .action(() => {
+    const root = repoRoot();
+    const config = loadConfig(root);
+    const now = Date.now();
+    const f = fuel(readLedger(ledgerPath(root)), resolveBudget(config, root), now);
+    process.stdout.write(renderStatusline(f, now) + "\n");
+  });
+
+// ── calibrate (set a real window budget) ─────────────────────────────────────
+program
+  .command("calibrate")
+  .description("Set your real window budget from a limit you just hit.")
+  .argument("[tokens]", "tokens used at the wall; omit to use the current window's usage")
+  .option("--window <w>", "which window you hit: 5h or week", "5h")
+  .action((tokArg: string | undefined, opts: { window: string }) => {
+    const root = repoRoot();
+    const entries = readLedger(ledgerPath(root));
+    const now = Date.now();
+    const isWeek = String(opts.window).toLowerCase().startsWith("w");
+    const current = isWeek
+      ? windowState(entries, WEEK_MS, now).used
+      : windowState(entries, FIVE_HOURS_MS, now).used;
+    const used = tokArg ? Number(tokArg) : current;
+    if (!Number.isFinite(used) || used <= 0) {
+      fail("Give a positive token count, or run the proxy/importer first so there's usage to read.");
+    }
+    const budget: PlanBudget = isWeek
+      ? { fiveHour: Math.round(used / 5), weekly: Math.round(used), source: "calibrated" }
+      : { fiveHour: Math.round(used), weekly: Math.round(used * 5), source: "calibrated" };
+    writeObservedBudget(root, budget);
+    process.stderr.write(
+      pc.green("✓ ") +
+        `calibrated from your ${isWeek ? "weekly" : "5-hour"} wall: ` +
+        pc.bold(`~${tokens(budget.fiveHour)} / 5h · ~${tokens(budget.weekly)} / week\n`),
+    );
+  });
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function computeReceipt(
@@ -301,11 +430,22 @@ function renderPrMarkdown(root: string, branch: string | undefined, base: string
   const { shas, sinceTs } = rangeFor(root, base, b);
   const selected = selectEntries(entries, { branch: b, rangeShas: shas, sinceTs, currency });
   const receipt = buildReceipt(selected, { branch: b, base, currency });
-  return renderMarkdown(receipt, {
+  const pricing = Pricing.load(root);
+  let md = renderMarkdown(receipt, {
     budget: config.budget,
     series: selected.map((e) => ({ ts: e.ts, cost: e.costUsd ?? 0 })),
-    priceUpdated: Pricing.load(root).updated(),
+    priceUpdated: pricing.updated(),
   });
+  // Append the usage-impact block: what this PR cost *you* against your plan.
+  const f = fuel(entries, resolveBudget(config, root), Date.now());
+  const fun = config.fun === true;
+  const block = usageBlockMarkdown(receipt, f, {
+    whatIf: whatIf(receipt, pricing),
+    fun,
+    repoTokens: fun ? estimateRepoTokens(root) : undefined,
+  });
+  if (block) md += "\n\n" + block;
+  return md;
 }
 
 function colorizeText(text: string, _config: ReturnType<typeof loadConfig>): string {

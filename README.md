@@ -141,6 +141,78 @@ Under budget reads green. Past 80% turns yellow. Over the line goes red and name
 
 Catching that before the merge is the whole point.
 
+## Know what it cost *you*, not just dollars
+
+Dollars are abstract on a subscription. What you actually feel is the window: the five-hour cap and the weekly one. So Receipt measures every task a second way — as a percentage of *you* — and turns it into the thing that changes how you work: what you can no longer do before the reset.
+
+Tell it your plan once:
+
+```bash
+receipt budget plan max5x        # or: pro, max20x
+```
+
+Then `receipt fuel` shows where you stand right now:
+
+```
+🔋 Fuel — how much of you this is using
+
+🟢 5-hour window  ███░░░░░░░░░░░░░░░░░░░░░ 11%  1.4M / 12.5M · resets in 3h30m
+🟢 weekly cap     █░░░░░░░░░░░░░░░░░░░░░░░ 4%   4.6M / 125.0M · resets in 3d 0h
+
+You could still do
+  5h: ~15 PRs this size · ~8 big refactors · ~101 quick edits
+  week: ~172 PRs this size · ~91 big refactors · ~1099 quick edits
+
+Pace: ↓ sustainable (168k/hr vs 744k/hr sustainable)
+```
+
+Every PR receipt gets a matching block: the share of your 5-hour and weekly windows the branch ate, the same number in your own work-units, an efficiency grade, and the one lever worth pulling — what running the heavy model's reads on a cheaper one would have saved.
+
+The window sizes learn from you. Capacity, records, and pace are built from your own task distribution, so "≈ 2 PRs this size" means *your* PRs. Add `--fun` for playful, still-honest comparisons ("re-reading your entire repo 1.6×").
+
+```bash
+receipt fuel            # current windows, capacity, pace
+receipt records         # heaviest, leanest, most recent tasks, ranked
+receipt forecast        # a typical task's impact + your weekly runway
+receipt statusline      # one-line gauge for the Claude Code statusline
+receipt calibrate       # set your real budget from a limit you hit
+```
+
+### How the limits work, and the numbers
+
+Claude subscriptions meter you on two rolling windows, not a dollar balance:
+
+- **A 5-hour window.** It opens with your first prompt and resets five hours later. This is the cap you hit inside a long session.
+- **A weekly (7-day) window.** A rolling ceiling across the whole week. Heavier models draw it down faster — an hour on Opus costs far more of the window than an hour on Sonnet or Haiku.
+
+Anthropic does not publish exact token budgets, and they shift with your model mix, so Receipt ships rough per-plan estimates and labels them as estimates everywhere they appear:
+
+| Plan | ~5-hour budget | ~weekly budget |
+| --- | --: | --: |
+| `pro` | 2.5M tokens | 25M tokens |
+| `max5x` | 12.5M tokens | 125M tokens |
+| `max20x` | 50M tokens | 500M tokens |
+
+Treat these as a starting point, not gospel. Two ways to replace them with your real ceiling:
+
+- **Run the proxy.** Every response carries the provider's `anthropic-ratelimit-*` headers. Receipt reads them and writes your actual limit to `.receipt/limits.json` — no guessing.
+- **Calibrate from a wall.** The moment you get rate-limited, run `receipt calibrate`; it takes what you'd spent in the window as your true budget. Add `--window week` for the weekly one.
+
+From there the math is plain: a percentage is `tokens used ÷ that budget`, and "what you could still do" is `budget left ÷ your own median task size`. The footer always names the source — `preset`, `calibrated`, or `observed` — so you know how much to trust the number. Full detail in [`docs/LIMITS.md`](docs/LIMITS.md).
+
+### Live in the Claude Code statusline
+
+Put the gauge where you work, so awareness happens mid-task rather than after:
+
+```json
+// .claude/settings.json
+{ "statusLine": { "type": "command", "command": "receipt statusline" } }
+```
+
+```
+🔋 🟢 5h 11% · wk 4% · ~15 PRs this size · resets 3h30m
+```
+
 ## Dashboard
 
 ```bash
@@ -185,6 +257,12 @@ Claude Code, Cursor, Aider, Codex CLI, Continue, the OpenAI and Anthropic SDKs, 
 | `receipt dashboard` | Serve the local spend dashboard. |
 | `receipt wrapped` | A shareable summary of recent spend. |
 | `receipt budget set <pr\|day> <usd>` | Set a spend ceiling. |
+| `receipt budget plan <pro\|max5x\|max20x>` | Set your subscription tier for window math. |
+| `receipt fuel` | How much of your plan you're using, and what's left. |
+| `receipt records` | Your heaviest, leanest, and most recent tasks. |
+| `receipt forecast` | A typical task's impact and your weekly runway. |
+| `receipt statusline` | One-line usage gauge for the Claude Code statusline. |
+| `receipt calibrate` | Set your real window budget from a limit you hit. |
 
 Run any command with `--help` for its flags.
 

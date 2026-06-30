@@ -106,8 +106,35 @@ export interface Budget {
   perDay?: number;
 }
 
+/** Which subscription tier the user is on, for usage-window math. */
+export type PlanId = "pro" | "max5x" | "max20x" | "custom";
+
+/**
+ * Estimated throughput a plan allows per rolling window, in total tokens.
+ *
+ * Anthropic does not publish exact per-window token budgets, so a preset is a
+ * rough, clearly-labeled estimate. `source` records where the number came from
+ * so the UI can stay honest: a preset guess, a value calibrated from a real
+ * limit you hit, or one observed live from the provider's rate-limit headers.
+ */
+export interface PlanBudget {
+  /** Estimated total tokens per 5-hour window. */
+  fiveHour: number;
+  /** Estimated total tokens per 7-day window. */
+  weekly: number;
+  source: "preset" | "calibrated" | "observed" | "custom";
+  /** The plan this budget was derived from, when known. */
+  plan?: PlanId;
+}
+
 export interface ReceiptConfig {
   base?: string;
   currency?: string;
   budget?: Budget;
+  /** Subscription tier, selected with `receipt budget plan <id>`. */
+  plan?: PlanId;
+  /** A custom window budget that overrides the preset for `plan`. */
+  planBudget?: PlanBudget;
+  /** Show playful real-world equivalences by default. */
+  fun?: boolean;
 }

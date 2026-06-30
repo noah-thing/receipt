@@ -1,4 +1,102 @@
 import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __commonJS = (cb, mod) => function __require() {
+  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+
+// node_modules/picocolors/picocolors.js
+var require_picocolors = __commonJS({
+  "node_modules/picocolors/picocolors.js"(exports, module) {
+    "use strict";
+    var p = process || {};
+    var argv = p.argv || [];
+    var env = p.env || {};
+    var isColorSupported = !(!!env.NO_COLOR || argv.includes("--no-color")) && (!!env.FORCE_COLOR || argv.includes("--color") || p.platform === "win32" || (p.stdout || {}).isTTY && env.TERM !== "dumb" || !!env.CI);
+    var formatter = (open, close, replace = open) => (input) => {
+      let string = "" + input, index = string.indexOf(close, open.length);
+      return ~index ? open + replaceClose(string, close, replace, index) + close : open + string + close;
+    };
+    var replaceClose = (string, close, replace, index) => {
+      let result = "", cursor = 0;
+      do {
+        result += string.substring(cursor, index) + replace;
+        cursor = index + close.length;
+        index = string.indexOf(close, cursor);
+      } while (~index);
+      return result + string.substring(cursor);
+    };
+    var createColors = (enabled = isColorSupported) => {
+      let f = enabled ? formatter : () => String;
+      return {
+        isColorSupported: enabled,
+        reset: f("\x1B[0m", "\x1B[0m"),
+        bold: f("\x1B[1m", "\x1B[22m", "\x1B[22m\x1B[1m"),
+        dim: f("\x1B[2m", "\x1B[22m", "\x1B[22m\x1B[2m"),
+        italic: f("\x1B[3m", "\x1B[23m"),
+        underline: f("\x1B[4m", "\x1B[24m"),
+        inverse: f("\x1B[7m", "\x1B[27m"),
+        hidden: f("\x1B[8m", "\x1B[28m"),
+        strikethrough: f("\x1B[9m", "\x1B[29m"),
+        black: f("\x1B[30m", "\x1B[39m"),
+        red: f("\x1B[31m", "\x1B[39m"),
+        green: f("\x1B[32m", "\x1B[39m"),
+        yellow: f("\x1B[33m", "\x1B[39m"),
+        blue: f("\x1B[34m", "\x1B[39m"),
+        magenta: f("\x1B[35m", "\x1B[39m"),
+        cyan: f("\x1B[36m", "\x1B[39m"),
+        white: f("\x1B[37m", "\x1B[39m"),
+        gray: f("\x1B[90m", "\x1B[39m"),
+        bgBlack: f("\x1B[40m", "\x1B[49m"),
+        bgRed: f("\x1B[41m", "\x1B[49m"),
+        bgGreen: f("\x1B[42m", "\x1B[49m"),
+        bgYellow: f("\x1B[43m", "\x1B[49m"),
+        bgBlue: f("\x1B[44m", "\x1B[49m"),
+        bgMagenta: f("\x1B[45m", "\x1B[49m"),
+        bgCyan: f("\x1B[46m", "\x1B[49m"),
+        bgWhite: f("\x1B[47m", "\x1B[49m"),
+        blackBright: f("\x1B[90m", "\x1B[39m"),
+        redBright: f("\x1B[91m", "\x1B[39m"),
+        greenBright: f("\x1B[92m", "\x1B[39m"),
+        yellowBright: f("\x1B[93m", "\x1B[39m"),
+        blueBright: f("\x1B[94m", "\x1B[39m"),
+        magentaBright: f("\x1B[95m", "\x1B[39m"),
+        cyanBright: f("\x1B[96m", "\x1B[39m"),
+        whiteBright: f("\x1B[97m", "\x1B[39m"),
+        bgBlackBright: f("\x1B[100m", "\x1B[49m"),
+        bgRedBright: f("\x1B[101m", "\x1B[49m"),
+        bgGreenBright: f("\x1B[102m", "\x1B[49m"),
+        bgYellowBright: f("\x1B[103m", "\x1B[49m"),
+        bgBlueBright: f("\x1B[104m", "\x1B[49m"),
+        bgMagentaBright: f("\x1B[105m", "\x1B[49m"),
+        bgCyanBright: f("\x1B[106m", "\x1B[49m"),
+        bgWhiteBright: f("\x1B[107m", "\x1B[49m")
+      };
+    };
+    module.exports = createColors();
+    module.exports.createColors = createColors;
+  }
+});
 
 // src/pricing.ts
 import { readFileSync, existsSync } from "fs";
@@ -642,20 +740,587 @@ async function importClaudeCode(opts) {
   out.sort((a, b) => a.ts.localeCompare(b.ts));
   return out;
 }
+
+// src/usage.ts
+import { existsSync as existsSync5, mkdirSync as mkdirSync3, readdirSync as readdirSync2, readFileSync as readFileSync6, statSync as statSync2, writeFileSync as writeFileSync2 } from "fs";
+import { dirname as dirname4, join as join6 } from "path";
+var FIVE_HOURS_MS = 5 * 60 * 60 * 1e3;
+var WEEK_MS = 7 * 24 * 60 * 60 * 1e3;
+var PLAN_PRESETS = {
+  pro: { fiveHour: 25e5, weekly: 25e6, source: "preset", plan: "pro" },
+  max5x: { fiveHour: 125e5, weekly: 125e6, source: "preset", plan: "max5x" },
+  max20x: { fiveHour: 5e7, weekly: 5e8, source: "preset", plan: "max20x" }
+};
+function entryTokens(e) {
+  return e.inputTokens + e.outputTokens + e.cacheReadTokens + e.cacheWrite5mTokens + e.cacheWrite1hTokens;
+}
+function ms(ts) {
+  return new Date(ts).getTime();
+}
+function windowState(entries, durationMs, now, budget) {
+  const since = now - durationMs;
+  const inWindow = entries.filter((e) => ms(e.ts) >= since);
+  if (inWindow.length === 0) {
+    return { used: 0, calls: 0, openedAt: now, resetAt: now + durationMs, budget, frac: budget ? 0 : void 0 };
+  }
+  const openedAt = Math.min(...inWindow.map((e) => ms(e.ts)));
+  const used = inWindow.reduce((s, e) => s + entryTokens(e), 0);
+  const resetAt = openedAt + durationMs;
+  return {
+    used,
+    calls: inWindow.length,
+    openedAt,
+    resetAt,
+    budget,
+    frac: budget && budget > 0 ? used / budget : void 0
+  };
+}
+function taskRollups(entries) {
+  const map = /* @__PURE__ */ new Map();
+  for (const e of entries) {
+    const key = e.git?.branch || e.label || "(unscoped)";
+    const r = map.get(key) ?? { key, tokens: 0, cost: 0, calls: 0, firstTs: ms(e.ts), lastTs: ms(e.ts) };
+    r.tokens += entryTokens(e);
+    r.cost += e.costUsd ?? 0;
+    r.calls += 1;
+    r.firstTs = Math.min(r.firstTs, ms(e.ts));
+    r.lastTs = Math.max(r.lastTs, ms(e.ts));
+    map.set(key, r);
+  }
+  return [...map.values()];
+}
+function quantile(sortedAsc, q) {
+  if (sortedAsc.length === 0) return 0;
+  const pos = (sortedAsc.length - 1) * q;
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  if (lo === hi) return sortedAsc[lo];
+  return sortedAsc[lo] + (sortedAsc[hi] - sortedAsc[lo]) * (pos - lo);
+}
+var DEFAULT_SIZES = {
+  quick: 5e4,
+  pr: 3e5,
+  refactor: 9e5,
+  feature: 2e6,
+  learned: false
+};
+function taskSizes(entries) {
+  const totals = taskRollups(entries).map((t) => t.tokens).filter((n) => n > 0).sort((a, b) => a - b);
+  if (totals.length < 4) return DEFAULT_SIZES;
+  return {
+    quick: Math.max(1, Math.round(quantile(totals, 0.25))),
+    pr: Math.max(1, Math.round(quantile(totals, 0.5))),
+    refactor: Math.max(1, Math.round(quantile(totals, 0.75))),
+    feature: Math.max(1, Math.round(quantile(totals, 0.9))),
+    learned: true
+  };
+}
+function personalStats(entries) {
+  const tasks = taskRollups(entries).filter((t) => t.tokens > 0);
+  const tokensSorted = tasks.map((t) => t.tokens).sort((a, b) => a - b);
+  const costSorted = tasks.map((t) => t.cost).sort((a, b) => a - b);
+  const meanTokens = tasks.length ? tasks.reduce((s, t) => s + t.tokens, 0) / tasks.length : 0;
+  return {
+    taskCount: tasks.length,
+    medianTaskTokens: quantile(tokensSorted, 0.5),
+    medianTaskCost: quantile(costSorted, 0.5),
+    meanTaskTokens: meanTokens
+  };
+}
+function paceState(entries, weeklyBudget, now, weeklyUsed) {
+  const lastHour = entries.filter((e) => ms(e.ts) >= now - 60 * 60 * 1e3).reduce((s, e) => s + entryTokens(e), 0);
+  const lastDay = entries.filter((e) => ms(e.ts) >= now - 24 * 60 * 60 * 1e3).reduce((s, e) => s + entryTokens(e), 0);
+  const sustainablePerHour = weeklyBudget ? weeklyBudget / 168 : 0;
+  const ratio = sustainablePerHour > 0 ? lastHour / sustainablePerHour : 0;
+  let runwayDays;
+  let runsDryAt;
+  if (weeklyBudget && lastDay > 0) {
+    const remaining = Math.max(0, weeklyBudget - weeklyUsed);
+    runwayDays = remaining / lastDay;
+    runsDryAt = now + runwayDays * 24 * 60 * 60 * 1e3;
+  }
+  return { lastHour, sustainablePerHour, ratio, lastDay, runwayDays, runsDryAt };
+}
+function capacity(remainingTokens, sizes) {
+  const r = Math.max(0, remainingTokens);
+  const items = [
+    { label: "PRs this size", count: Math.floor(r / sizes.pr) },
+    { label: "big refactors", count: Math.floor(r / sizes.refactor) },
+    { label: "quick edits", count: Math.floor(r / sizes.quick) }
+  ];
+  return items.filter((i) => i.count > 0);
+}
+function inWorkUnits(tokensUsed, sizes) {
+  const units = [
+    ["features", sizes.feature],
+    ["refactors", sizes.refactor],
+    ["PRs", sizes.pr],
+    ["quick edits", sizes.quick]
+  ];
+  for (const [name, size] of units) {
+    const n = tokensUsed / size;
+    if (n >= 0.8) return `${n.toFixed(n >= 10 ? 0 : 1)} ${name}`;
+  }
+  return `${Math.max(1, Math.round(tokensUsed / sizes.quick))} quick edits`;
+}
+function efficiencyGrade(receipt) {
+  const inputAll = receipt.byModel.reduce((s, m) => s + m.inputTokens + m.cacheReadTokens, 0);
+  const cacheRead = receipt.byModel.reduce((s, m) => s + m.cacheReadTokens, 0);
+  const cacheHitRate = inputAll > 0 ? cacheRead / inputAll : 0;
+  const retryRate = receipt.entryCount > 0 ? receipt.retries / receipt.entryCount : 0;
+  let score = 55 + 45 * cacheHitRate - 35 * Math.min(1, retryRate);
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  const letter = score >= 90 ? "A" : score >= 80 ? "B" : score >= 70 ? "C" : score >= 60 ? "D" : "F";
+  return { score, letter, cacheHitRate, retryRate };
+}
+function whereItWent(receipt) {
+  const total = receipt.totalTokens || 1;
+  const output = receipt.byModel.reduce((s, m) => s + m.outputTokens, 0);
+  const freshInput = receipt.byModel.reduce((s, m) => s + m.inputTokens, 0);
+  const cacheRead = receipt.byModel.reduce((s, m) => s + m.cacheReadTokens, 0);
+  const cacheWrite = receipt.byModel.reduce((s, m) => s + m.cacheWriteTokens, 0);
+  return {
+    output: output / total,
+    freshInput: freshInput / total,
+    cacheRead: cacheRead / total,
+    cacheWrite: cacheWrite / total
+  };
+}
+function whatIf(receipt, pricing, cheaper = "claude-haiku-4-5") {
+  const top = receipt.byModel.find((m) => m.priced && m.costUsd > 0);
+  if (!top || top.model === cheaper) return void 0;
+  const readTokens = { inputTokens: top.inputTokens, cacheReadTokens: top.cacheReadTokens };
+  const base = {
+    outputTokens: 0,
+    cacheWrite5mTokens: 0,
+    cacheWrite1hTokens: 0,
+    toolCalls: {}
+  };
+  const current = pricing.cost({ model: top.model, ...readTokens, ...base });
+  const swapped = pricing.cost({ model: cheaper, ...readTokens, ...base });
+  if (current === null || swapped === null || current <= swapped) return void 0;
+  const saved = current - swapped;
+  return {
+    fromModel: top.model,
+    toModel: cheaper,
+    currentCost: current,
+    cheaperCost: swapped,
+    saved,
+    savedFrac: receipt.total > 0 ? saved / receipt.total : 0
+  };
+}
+function records(entries) {
+  const tasks = taskRollups(entries).filter((t) => t.tokens > 0 && t.key !== "(unscoped)");
+  if (tasks.length === 0) return { streakUnderMedian: 0 };
+  const byTokens = [...tasks].sort((a, b) => b.tokens - a.tokens);
+  const byRecency = [...tasks].sort((a, b) => b.lastTs - a.lastTs);
+  const median = quantile([...tasks].map((t) => t.tokens).sort((a, b) => a - b), 0.5);
+  const latest = byRecency[0];
+  let streak = 0;
+  for (const t of byRecency) {
+    if (t.tokens < median) streak += 1;
+    else break;
+  }
+  return {
+    priciest: byTokens[0],
+    leanest: byTokens[byTokens.length - 1],
+    latest,
+    latestRank: latest ? byTokens.findIndex((t) => t.key === latest.key) + 1 : void 0,
+    streakUnderMedian: streak
+  };
+}
+function funEquivalences(tokensUsed, repoTokens) {
+  const out = [];
+  if (repoTokens && repoTokens > 0) {
+    const times = tokensUsed / repoTokens;
+    if (times >= 0.3) out.push(`re-reading your entire repo ${times.toFixed(1)}\xD7`);
+  }
+  const WAR_AND_PEACE = 78e4;
+  const NOVEL = 105e3;
+  const wp = tokensUsed / WAR_AND_PEACE;
+  if (wp >= 0.5) out.push(`reading War and Peace ${wp.toFixed(1)}\xD7 over`);
+  const novels = tokensUsed / NOVEL;
+  if (novels >= 1) out.push(`reading ${Math.round(novels)} average novels`);
+  const readerHours = tokensUsed / 330 / 60;
+  if (readerHours >= 1) out.push(`${readerHours.toFixed(0)} hours of human reading`);
+  return out;
+}
+function voiceLine(frac) {
+  if (frac === void 0) return void 0;
+  if (frac >= 1) return "Window's gone. The wall is right there.";
+  if (frac >= 0.85) return "You're nearly out of road for this window.";
+  if (frac >= 0.6) return "Past the halfway mark. Spend the rest on purpose.";
+  if (frac >= 0.3) return "Cruising. Plenty of window left.";
+  return "Barely touched it.";
+}
+function fuel(entries, budget, now) {
+  const fiveHour = windowState(entries, FIVE_HOURS_MS, now, budget?.fiveHour);
+  const weekly = windowState(entries, WEEK_MS, now, budget?.weekly);
+  const sizes = taskSizes(entries);
+  const pace = paceState(entries, budget?.weekly, now, weekly.used);
+  const remaining5h = budget ? Math.max(0, budget.fiveHour - fiveHour.used) : 0;
+  const remainingWk = budget ? Math.max(0, budget.weekly - weekly.used) : 0;
+  return {
+    budget,
+    fiveHour,
+    weekly,
+    pace,
+    sizes,
+    capacityFiveHour: budget ? capacity(remaining5h, sizes) : [],
+    capacityWeekly: budget ? capacity(remainingWk, sizes) : []
+  };
+}
+function taskImpact(taskTokens, budget) {
+  if (!budget) return void 0;
+  return {
+    fiveHour: budget.fiveHour > 0 ? taskTokens / budget.fiveHour : 0,
+    weekly: budget.weekly > 0 ? taskTokens / budget.weekly : 0
+  };
+}
+function limitsPath(root) {
+  return join6(root, ".receipt", "limits.json");
+}
+function readObservedBudget(root) {
+  const path = limitsPath(root);
+  if (!existsSync5(path)) return void 0;
+  try {
+    const b = JSON.parse(readFileSync6(path, "utf8"));
+    if (typeof b.fiveHour === "number" && typeof b.weekly === "number") return b;
+  } catch {
+  }
+  return void 0;
+}
+function writeObservedBudget(root, budget) {
+  const path = limitsPath(root);
+  mkdirSync3(dirname4(path), { recursive: true });
+  writeFileSync2(path, JSON.stringify(budget, null, 2) + "\n", "utf8");
+}
+function resolveBudget(config, root) {
+  const observed = readObservedBudget(root);
+  if (observed) return observed;
+  if (config.planBudget) return config.planBudget;
+  if (config.plan && config.plan !== "custom") return PLAN_PRESETS[config.plan];
+  return void 0;
+}
+function captureLimits(getHeader, root) {
+  const num2 = (name) => {
+    const v = getHeader(name);
+    if (v == null) return void 0;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : void 0;
+  };
+  const limit = num2("anthropic-ratelimit-unified-limit") ?? num2("anthropic-ratelimit-tokens-limit") ?? num2("anthropic-ratelimit-input-tokens-limit");
+  if (!limit || limit <= 0) return;
+  const existing = readObservedBudget(root);
+  const fiveHour = Math.max(limit, existing?.fiveHour ?? 0);
+  const weekly = Math.max(existing?.weekly ?? 0, fiveHour * 5);
+  writeObservedBudget(root, { fiveHour, weekly, source: "observed" });
+}
+var SKIP_DIRS = /* @__PURE__ */ new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  "coverage",
+  ".next",
+  ".turbo",
+  "vendor"
+]);
+var TEXT_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|rb|java|kt|c|h|cpp|cc|cs|php|swift|scala|sh|sql|json|yaml|yml|toml|md|css|scss|html|vue|svelte)$/i;
+function estimateRepoTokens(root, maxFiles = 4e3) {
+  let chars = 0;
+  let seen = 0;
+  const walk = (dir) => {
+    if (seen >= maxFiles) return;
+    let ents;
+    try {
+      ents = readdirSync2(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of ents) {
+      if (seen >= maxFiles) return;
+      if (ent.isDirectory()) {
+        if (SKIP_DIRS.has(ent.name) || ent.name.startsWith(".")) continue;
+        walk(join6(dir, ent.name));
+      } else if (ent.isFile() && TEXT_EXT.test(ent.name)) {
+        try {
+          const size = statSync2(join6(dir, ent.name)).size;
+          if (size <= 2e6) {
+            chars += size;
+            seen += 1;
+          }
+        } catch {
+        }
+      }
+    }
+  };
+  walk(root);
+  return Math.round(chars / 4);
+}
+
+// src/usage-render.ts
+var import_picocolors = __toESM(require_picocolors(), 1);
+function until(now, target) {
+  let s = Math.max(0, Math.round((target - now) / 1e3));
+  const d = Math.floor(s / 86400);
+  s -= d * 86400;
+  const h = Math.floor(s / 3600);
+  s -= h * 3600;
+  const m = Math.floor(s / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h${String(m).padStart(2, "0")}m`;
+  return `${m}m`;
+}
+function clockDate(ms2) {
+  const d = new Date(ms2);
+  const day = d.toLocaleDateString(void 0, { weekday: "short" });
+  let hr = d.getHours();
+  const ampm = hr >= 12 ? "pm" : "am";
+  hr = hr % 12 || 12;
+  return `${day} ${hr}${ampm}`;
+}
+function dot(frac) {
+  if (frac === void 0) return "\u26AA";
+  if (frac >= 1) return "\u{1F534}";
+  if (frac >= 0.85) return "\u{1F7E0}";
+  if (frac >= 0.6) return "\u{1F7E1}";
+  return "\u{1F7E2}";
+}
+function sourceNote(b) {
+  if (!b) return "";
+  if (b.source === "observed") return "from live rate-limit headers";
+  if (b.source === "calibrated") return "calibrated from a real limit you hit";
+  if (b.source === "custom") return "your custom budget";
+  return "estimated preset \u2014 run the proxy or `receipt calibrate` for real numbers";
+}
+function capacityPhrase(items) {
+  if (items.length === 0) return "not enough left for a full task";
+  return items.map((i) => `~${i.count} ${i.label}`).join(" \xB7 ");
+}
+function usageBlockMarkdown(receipt, fuel2, extras = {}) {
+  if (receipt.totalTokens === 0) return "";
+  const lines = [];
+  lines.push("<details><summary>\u{1F50B} <b>Usage impact</b> \u2014 what this cost <i>you</i></summary>");
+  lines.push("");
+  const impact = taskImpact(receipt.totalTokens, fuel2.budget);
+  if (impact && fuel2.budget) {
+    lines.push(
+      `This PR ate **${(impact.fiveHour * 100).toFixed(1)}%** of a 5-hour window and **${(impact.weekly * 100).toFixed(1)}%** of your weekly cap.`
+    );
+    const left = capacityPhrase(fuel2.capacityFiveHour);
+    lines.push(`Right now you've got **${left}** left in this 5-hour window.`);
+    lines.push("");
+  }
+  lines.push(`That's about **${inWorkUnits(receipt.totalTokens, fuel2.sizes)}** in your own work.`);
+  const grade = efficiencyGrade(receipt);
+  lines.push(
+    `Efficiency: **${grade.letter}** (${grade.score}/100) \u2014 ${Math.round(grade.cacheHitRate * 100)}% served from cache, ${receipt.retries} ${receipt.retries === 1 ? "retry" : "retries"}.`
+  );
+  if (extras.whatIf) {
+    const w = extras.whatIf;
+    lines.push(
+      `Lever: running \`${w.fromModel}\`'s reads on \`${w.toModel}\` would've saved **$${w.saved.toFixed(2)}** (${Math.round(w.savedFrac * 100)}% of this PR).`
+    );
+  }
+  if (extras.fun) {
+    const eq = funEquivalences(receipt.totalTokens, extras.repoTokens);
+    if (eq.length) lines.push(`For scale: ${eq.slice(0, 2).join(", ")}.`);
+  }
+  if (fuel2.budget) {
+    lines.push("");
+    lines.push(`<sub>window budget ${sourceNote(fuel2.budget)}</sub>`);
+  }
+  lines.push("");
+  lines.push("</details>");
+  return lines.join("\n");
+}
+function gaugeLine(label, w, now) {
+  if (w.budget && w.frac !== void 0) {
+    const bar = progressBar(w.frac, 24);
+    const color = w.frac >= 1 ? import_picocolors.default.red : w.frac >= 0.85 ? import_picocolors.default.yellow : w.frac >= 0.6 ? import_picocolors.default.yellow : import_picocolors.default.green;
+    return `${dot(w.frac)} ${import_picocolors.default.bold(label.padEnd(14))} ${color(bar)} ${import_picocolors.default.bold(`${Math.round(w.frac * 100)}%`)}  ` + import_picocolors.default.dim(`${tokens(w.used)} / ${tokens(w.budget)} \xB7 resets in ${until(now, w.resetAt)}`);
+  }
+  return `${dot(void 0)} ${import_picocolors.default.bold(label.padEnd(14))} ${import_picocolors.default.dim(`${tokens(w.used)} used \xB7 resets in ${until(now, w.resetAt)} \xB7 no plan set`)}`;
+}
+function renderFuel(fuel2, now, extras = {}) {
+  const out = [];
+  out.push("");
+  out.push(import_picocolors.default.bold("\u{1F50B} Fuel \u2014 how much of you this is using"));
+  out.push("");
+  out.push(gaugeLine("5-hour window", fuel2.fiveHour, now));
+  out.push(gaugeLine("weekly cap", fuel2.weekly, now));
+  out.push("");
+  if (fuel2.budget) {
+    out.push(import_picocolors.default.bold("You could still do"));
+    out.push(`  5h: ${capacityPhrase(fuel2.capacityFiveHour)}`);
+    out.push(`  week: ${capacityPhrase(fuel2.capacityWeekly)}`);
+    out.push("");
+    const p = fuel2.pace;
+    if (p.sustainablePerHour > 0) {
+      const arrow = p.ratio > 1.25 ? import_picocolors.default.red(`\u2191 ${p.ratio.toFixed(1)}\xD7 too fast`) : p.ratio < 0.75 ? import_picocolors.default.green("\u2193 sustainable") : import_picocolors.default.yellow("\u2248 on pace");
+      out.push(`Pace: ${arrow} ${import_picocolors.default.dim(`(${tokens(p.lastHour)}/hr vs ${tokens(p.sustainablePerHour)}/hr sustainable)`)}`);
+    }
+    if (p.runsDryAt && p.runwayDays !== void 0 && p.runwayDays < 14) {
+      out.push(import_picocolors.default.dim(`At today's burn, the weekly budget runs dry ~${clockDate(p.runsDryAt)}.`));
+    }
+    const vl = voiceLine(fuel2.weekly.frac);
+    if (vl) out.push(import_picocolors.default.italic(import_picocolors.default.dim(`\u201C${vl}\u201D`)));
+    out.push("");
+    out.push(import_picocolors.default.dim(`window budget ${sourceNote(fuel2.budget)}`));
+  } else {
+    out.push(import_picocolors.default.dim("No plan set, so percentages are off. Set one to unlock the gauges:"));
+    out.push(import_picocolors.default.dim("  receipt budget plan pro|max5x|max20x"));
+    out.push(import_picocolors.default.dim("  \u2026or run `receipt proxy` and it learns your real limit from the provider."));
+    if (fuel2.sizes.learned) {
+      out.push("");
+      out.push(import_picocolors.default.dim(`Your typical sizes: quick ${tokens(fuel2.sizes.quick)} \xB7 PR ${tokens(fuel2.sizes.pr)} \xB7 refactor ${tokens(fuel2.sizes.refactor)} \xB7 feature ${tokens(fuel2.sizes.feature)} tokens.`));
+    }
+  }
+  out.push("");
+  return out.join("\n");
+}
+function renderStatusline(fuel2, now) {
+  const parts = [];
+  if (fuel2.fiveHour.frac !== void 0) {
+    parts.push(`${dot(fuel2.fiveHour.frac)} 5h ${Math.round(fuel2.fiveHour.frac * 100)}%`);
+  } else {
+    parts.push(`5h ${tokens(fuel2.fiveHour.used)}`);
+  }
+  if (fuel2.weekly.frac !== void 0) parts.push(`wk ${Math.round(fuel2.weekly.frac * 100)}%`);
+  const p = fuel2.pace;
+  if (p.sustainablePerHour > 0 && p.ratio >= 1.25) parts.push(`\u2191${p.ratio.toFixed(1)}x`);
+  if (fuel2.budget && fuel2.capacityFiveHour[0]) {
+    parts.push(`~${fuel2.capacityFiveHour[0].count} ${fuel2.capacityFiveHour[0].label}`);
+  }
+  if (fuel2.budget && fuel2.fiveHour.frac !== void 0) {
+    parts.push(`resets ${until(now, fuel2.fiveHour.resetAt)}`);
+  }
+  return "\u{1F50B} " + parts.join(" \xB7 ");
+}
+function renderRecords(entries) {
+  const r = records(entries);
+  const out = [];
+  out.push("");
+  out.push(import_picocolors.default.bold("\u{1F3C6} Your usage records"));
+  out.push("");
+  if (!r.priciest) {
+    out.push(import_picocolors.default.dim("Not enough branch history yet. Keep working and check back."));
+    out.push("");
+    return out.join("\n");
+  }
+  out.push(`\u{1F947} Heaviest task: ${import_picocolors.default.bold(r.priciest.key)} ${import_picocolors.default.dim(`(${tokens(r.priciest.tokens)} tokens)`)}`);
+  if (r.leanest) out.push(`\u{1FAB6} Leanest task:  ${import_picocolors.default.bold(r.leanest.key)} ${import_picocolors.default.dim(`(${tokens(r.leanest.tokens)} tokens)`)}`);
+  if (r.latest && r.latestRank) {
+    out.push(
+      `\u{1F4CD} Most recent:  ${import_picocolors.default.bold(r.latest.key)} \u2014 #${r.latestRank} heaviest of ${r.priciest ? "all" : ""} your tasks`
+    );
+  }
+  if (r.streakUnderMedian > 0) {
+    out.push(import_picocolors.default.green(`\u{1F525} Streak: ${r.streakUnderMedian} task(s) in a row under your median. Tidy.`));
+  }
+  out.push("");
+  return out.join("\n");
+}
+function renderForecast(fuel2, now) {
+  const out = [];
+  out.push("");
+  out.push(import_picocolors.default.bold("\u{1F52E} Forecast"));
+  out.push("");
+  const typical = fuel2.sizes.pr;
+  out.push(`A typical task for you runs ~${tokens(typical)} tokens.`);
+  if (fuel2.budget) {
+    const imp5 = typical / fuel2.budget.fiveHour * 100;
+    out.push(`That's ~${imp5.toFixed(1)}% of a 5-hour window each.`);
+    const left = fuel2.budget.fiveHour - fuel2.fiveHour.used;
+    const fits = Math.floor(Math.max(0, left) / typical);
+    out.push(
+      fits > 0 ? import_picocolors.default.green(`You can fit ~${fits} more before this window resets in ${until(now, fuel2.fiveHour.resetAt)}.`) : import_picocolors.default.yellow(`Not enough window left for another typical task; resets in ${until(now, fuel2.fiveHour.resetAt)}.`)
+    );
+    if (fuel2.pace.runsDryAt && fuel2.pace.runwayDays !== void 0 && fuel2.pace.runwayDays < 14) {
+      out.push(import_picocolors.default.dim(`Weekly runway at today's pace: ~${fuel2.pace.runwayDays.toFixed(1)} days (dry ~${clockDate(fuel2.pace.runsDryAt)}).`));
+    }
+  } else {
+    out.push(import_picocolors.default.dim("Set a plan (`receipt budget plan \u2026`) to forecast against your real window."));
+  }
+  out.push("");
+  return out.join("\n");
+}
+function whereItWentText(receipt) {
+  const c = whereItWent(receipt);
+  const pctOf = (n) => `${Math.round(n * 100)}%`;
+  return `where it went: ${pctOf(c.output)} output \xB7 ${pctOf(c.freshInput)} fresh input \xB7 ${pctOf(c.cacheRead)} cache reads \xB7 ${pctOf(c.cacheWrite)} cache writes`;
+}
+function usageSummaryText(receipt, fuel2, extras = {}) {
+  if (receipt.totalTokens === 0) return "";
+  const out = [];
+  const impact = taskImpact(receipt.totalTokens, fuel2.budget);
+  const grade = efficiencyGrade(receipt);
+  const head = [];
+  if (impact && fuel2.budget) {
+    head.push(`${(impact.fiveHour * 100).toFixed(1)}% of 5h \xB7 ${(impact.weekly * 100).toFixed(1)}% of week`);
+  }
+  head.push(`\u2248 ${inWorkUnits(receipt.totalTokens, fuel2.sizes)}`);
+  head.push(`grade ${grade.letter} (${grade.score}/100)`);
+  out.push(import_picocolors.default.bold("\u{1F50B} ") + head.join(import_picocolors.default.dim(" \xB7 ")));
+  out.push(import_picocolors.default.dim("   " + whereItWentText(receipt)));
+  if (impact && fuel2.budget) {
+    out.push(import_picocolors.default.dim(`   ${capacityPhrase(fuel2.capacityFiveHour)} left in this 5h window`));
+  }
+  if (extras.whatIf) {
+    out.push(import_picocolors.default.dim(`   lever: ${extras.whatIf.fromModel} reads on ${extras.whatIf.toModel} saves $${extras.whatIf.saved.toFixed(2)}`));
+  }
+  if (extras.fun) {
+    const eq = funEquivalences(receipt.totalTokens, extras.repoTokens);
+    if (eq.length) out.push(import_picocolors.default.dim("   = " + eq.slice(0, 2).join(", ")));
+  }
+  return out.join("\n");
+}
 export {
   COMMENT_MARKER,
+  FIVE_HOURS_MS,
+  PLAN_PRESETS,
   Pricing,
+  WEEK_MS,
   append,
   appendMany,
   buildDashboardData,
   buildReceipt,
+  capacity,
+  captureLimits,
+  efficiencyGrade,
+  entryTokens,
+  estimateRepoTokens,
+  fuel,
+  funEquivalences,
   importClaudeCode,
   importGeneric,
+  inWorkUnits,
   knownRequestIds,
   ledgerPath,
+  paceState,
+  personalStats,
   providerOf,
+  quantile,
   readLedger,
+  readObservedBudget,
+  records,
+  renderForecast,
+  renderFuel,
   renderMarkdown,
+  renderRecords,
+  renderStatusline,
   renderText,
-  selectEntries
+  resolveBudget,
+  selectEntries,
+  taskImpact,
+  taskRollups,
+  taskSizes,
+  usageBlockMarkdown,
+  usageSummaryText,
+  voiceLine,
+  whatIf,
+  whereItWent,
+  windowState,
+  writeObservedBudget
 };

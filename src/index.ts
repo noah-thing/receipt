@@ -12,6 +12,41 @@ export { renderMarkdown, renderText, COMMENT_MARKER } from "./render.js";
 export { buildDashboardData } from "./dashboard.js";
 export { importGeneric } from "./importers/generic.js";
 export { importClaudeCode } from "./importers/claude-code.js";
+export {
+  fuel,
+  windowState,
+  taskSizes,
+  taskRollups,
+  personalStats,
+  paceState,
+  capacity,
+  inWorkUnits,
+  efficiencyGrade,
+  whereItWent,
+  whatIf,
+  records,
+  funEquivalences,
+  voiceLine,
+  taskImpact,
+  resolveBudget,
+  readObservedBudget,
+  writeObservedBudget,
+  captureLimits,
+  estimateRepoTokens,
+  quantile,
+  entryTokens,
+  PLAN_PRESETS,
+  FIVE_HOURS_MS,
+  WEEK_MS,
+} from "./usage.js";
+export {
+  renderFuel,
+  renderStatusline,
+  renderRecords,
+  renderForecast,
+  usageBlockMarkdown,
+  usageSummaryText,
+} from "./usage-render.js";
 export type {
   LedgerEntry,
   ModelPrice,
@@ -20,4 +55,6 @@ export type {
   ModelRollup,
   Budget,
   ReceiptConfig,
+  PlanId,
+  PlanBudget,
 } from "./types.js";
