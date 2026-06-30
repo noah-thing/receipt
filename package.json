@@ -1,6 +1,9 @@
 {
-  "name": "receipt-cli",
+  "name": "@noah-thing/receipt",
   "version": "0.1.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "See exactly what your AI coding agent cost — itemized on every pull request. Token and dollar tracking for Claude Code, Cursor, Copilot, Aider, and any OpenAI- or Anthropic-compatible tool.",
   "keywords": [
     "ai",

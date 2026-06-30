@@ -191,7 +191,7 @@ Run any command with `--help` for its flags.
 ## Use it as a library
 
 ```ts
-import { Pricing, readLedger, ledgerPath, buildReceipt, renderMarkdown } from "receipt-cli";
+import { Pricing, readLedger, ledgerPath, buildReceipt, renderMarkdown } from "@noah-thing/receipt";
 
 const pricing = Pricing.load(process.cwd());
 const entries = readLedger(ledgerPath(process.cwd()));
