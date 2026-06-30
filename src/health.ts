@@ -19,6 +19,7 @@
  * needed — the ledger already has it.
  */
 import type { LedgerEntry } from "./types.js";
+import type { Pricing } from "./pricing.js";
 
 export const THIRTY_MIN_MS = 30 * 60 * 1000;
 
@@ -142,6 +143,9 @@ export interface SessionHealth {
   /** Estimated current context size (tokens), from the heaviest of the last few calls. */
   contextTokens: number;
   fill: number;
+  /** The heaviest prompt seen anywhere in the session, and as a fraction of the window. */
+  peakContextTokens: number;
+  peakFill: number;
   cacheReadShare: number;
   compactions: number;
   recentRetries: number;
@@ -182,6 +186,12 @@ export function analyzeSession(session: LedgerEntry[], now: number): SessionHeal
   const model = dominantModel(session);
   const contextWindow = contextWindowFor(contextModel);
   const fill = contextWindow > 0 ? contextTokens / contextWindow : 0;
+
+  // Peak prompt size anywhere in the session — a session can spike to 95% and
+  // then auto-compact back to 20%, so the end-state fill alone understates risk.
+  let peakContextTokens = 0;
+  for (const e of session) peakContextTokens = Math.max(peakContextTokens, promptTokens(e));
+  const peakFill = contextWindow > 0 ? peakContextTokens / contextWindow : 0;
 
   const cacheRead = session.reduce((s, e) => s + e.cacheReadTokens, 0);
   const cacheWrite = session.reduce((s, e) => s + e.cacheWrite5mTokens + e.cacheWrite1hTokens, 0);
@@ -310,6 +320,8 @@ export function analyzeSession(session: LedgerEntry[], now: number): SessionHeal
     contextWindow,
     contextTokens,
     fill,
+    peakContextTokens,
+    peakFill,
     cacheReadShare,
     compactions,
     recentRetries,
@@ -323,4 +335,298 @@ export function sessionHealth(entries: LedgerEntry[], now: number): SessionHealt
   const s = latestSession(entries);
   if (!s || s.length === 0) return undefined;
   return analyzeSession(s, now);
+}
+
+// ── automation: exit codes, so a hook or CI step can act on the status ────────
+
+/** Severity order for statuses, low → high. */
+const STATUS_ORDER: HealthStatus[] = ["fresh", "healthy", "watch", "degrading", "critical"];
+
+export const STATUS_RANK: Record<HealthStatus, number> = {
+  fresh: 0,
+  healthy: 1,
+  watch: 2,
+  degrading: 3,
+  critical: 4,
+};
+
+/**
+ * Exit code per status, for `receipt health --quiet` and `receipt guard`.
+ * Distinct codes (not just 0/1) let a script branch on severity, and they sit
+ * above 1 so they never collide with the generic failure exit.
+ */
+export const HEALTH_EXIT: Record<HealthStatus, number> = {
+  fresh: 0,
+  healthy: 0,
+  watch: 10,
+  degrading: 20,
+  critical: 30,
+};
+
+/** True when `status` is at or above `gate` in severity. */
+export function atOrAbove(status: HealthStatus, gate: HealthStatus): boolean {
+  return STATUS_ORDER.indexOf(status) >= STATUS_ORDER.indexOf(gate);
+}
+
+/** Exit code for a session under a gate. 0 when below the gate, or no session. */
+export function healthExitCode(h: SessionHealth | undefined, gate: HealthStatus = "degrading"): number {
+  if (!h) return 0;
+  return atOrAbove(h.status, gate) ? HEALTH_EXIT[h.status] : 0;
+}
+
+// ── retrospective: the health of the work behind a pull request ───────────────
+
+export interface PrHealth {
+  /** Number of distinct sessions that touched this branch/range. */
+  sessions: number;
+  /** Per-session analysis, oldest → newest. */
+  analyzed: SessionHealth[];
+  /** Worst status reached across all of them. */
+  worst: HealthStatus;
+  /** Highest fill fraction reached in any session, and its raw tokens + window. */
+  peakFill: number;
+  peakContextTokens: number;
+  peakWindow: number;
+  /** Inferred auto-compactions summed across sessions. */
+  totalCompactions: number;
+  /** Any session showed a looping signal. */
+  looped: boolean;
+  longestTurns: number;
+  longestMin: number;
+  /** The most important signals, de-duped by key (worst severity wins), max 3. */
+  topSignals: HealthSignal[];
+}
+
+/**
+ * Aggregate session health across the entries that make up a pull request.
+ *
+ * The live `sessionHealth` asks "is my session degrading right now?"; this asks
+ * the reviewer's question — "was this work produced under conditions that
+ * correlate with drift?" It proves *conditions*, never that the code is wrong.
+ */
+export function prHealth(
+  selected: LedgerEntry[],
+  now: number,
+  gapMs = THIRTY_MIN_MS,
+): PrHealth | undefined {
+  if (selected.length === 0) return undefined;
+  const sessions = sessionize(selected, gapMs);
+  const analyzed = sessions.map((s) => {
+    const end = ms(s[s.length - 1]!.ts);
+    return analyzeSession(s, end);
+  });
+
+  let worst: HealthStatus = "fresh";
+  let peakFill = 0;
+  let peakContextTokens = 0;
+  let peakWindow = 200_000;
+  let totalCompactions = 0;
+  let looped = false;
+  let longestTurns = 0;
+  let longestMin = 0;
+  const sigByKey = new Map<string, HealthSignal>();
+
+  for (const h of analyzed) {
+    if (STATUS_RANK[h.status] > STATUS_RANK[worst]) worst = h.status;
+    if (h.peakFill > peakFill) {
+      peakFill = h.peakFill;
+      peakContextTokens = h.peakContextTokens;
+      peakWindow = h.contextWindow;
+    }
+    totalCompactions += h.compactions;
+    if (h.recentRetries >= 3) looped = true;
+    longestTurns = Math.max(longestTurns, h.calls);
+    longestMin = Math.max(longestMin, h.durationMin);
+    for (const s of h.signals) {
+      const prev = sigByKey.get(s.key);
+      if (!prev || RANK[s.severity] > RANK[prev.severity]) sigByKey.set(s.key, s);
+    }
+  }
+
+  const topSignals = [...sigByKey.values()]
+    .sort((a, b) => RANK[b.severity] - RANK[a.severity])
+    .slice(0, 3);
+
+  return {
+    sessions: analyzed.length,
+    analyzed,
+    worst,
+    peakFill,
+    peakContextTokens,
+    peakWindow,
+    totalCompactions,
+    looped,
+    longestTurns,
+    longestMin,
+    topSignals,
+  };
+}
+
+// ── cross-session: how your sessions have held up over time ───────────────────
+
+export interface SessionSummary {
+  /** 1-based chronological index. */
+  index: number;
+  startTs: number;
+  endTs: number;
+  health: SessionHealth;
+  /** The first inferred compaction happened only after fill had already passed 0.8. */
+  compactedLate: boolean;
+}
+
+/** Analyze every session in the ledger, oldest → newest. */
+export function sessionHistory(entries: LedgerEntry[], gapMs = THIRTY_MIN_MS): SessionSummary[] {
+  return sessionize(entries, gapMs).map((s, i) => {
+    const endTs = ms(s[s.length - 1]!.ts);
+    // now = endTs so a finished session isn't scored as if it's still running.
+    const health = analyzeSession(s, endTs);
+    let peakBefore = 0;
+    let compactedLate = false;
+    for (let j = 1; j < s.length; j++) {
+      const prev = promptTokens(s[j - 1]!);
+      const cur = promptTokens(s[j]!);
+      peakBefore = Math.max(peakBefore, prev / health.contextWindow);
+      if (prev > health.contextWindow * 0.3 && cur < prev * 0.5) {
+        compactedLate = peakBefore >= 0.8;
+        break;
+      }
+    }
+    return { index: i + 1, startTs: ms(s[0]!.ts), endTs, health, compactedLate };
+  });
+}
+
+// ── the context tax: how much of a session is just re-sending itself ──────────
+
+export interface ContextTax {
+  totalTokens: number;
+  /** Prior context carried forward each turn — cache reads. */
+  resentTokens: number;
+  /** Genuinely new work — fresh input + generated output. */
+  newTokens: number;
+  /** Context being cached for the first time — cache writes. */
+  cacheWriteTokens: number;
+  /** resentTokens / totalTokens. */
+  resentShare: number;
+  /** Dollar cost of the re-sent context (null if any model is unpriced). */
+  resentCostUsd: number | null;
+  /** Dollar cost of the genuinely-new work. */
+  newCostUsd: number | null;
+  /** resentCostUsd / (resentCostUsd + newCostUsd) — far smaller than the token share, thanks to caching. */
+  resentCostShare: number | null;
+}
+
+/**
+ * Quantify the quadratic re-send tax. As a session grows, most of each turn's
+ * tokens are prior context carried forward (cache reads), not new work — which
+ * is why a long session both costs more *and* gets duller. Caching keeps the
+ * dollar tax small; showing both numbers keeps the story honest, not alarmist:
+ * a fresh session is cheaper *and* sharper.
+ */
+export function contextTax(session: LedgerEntry[], pricing: Pricing): ContextTax {
+  let resentTokens = 0;
+  let newTokens = 0;
+  let cacheWriteTokens = 0;
+  let resentCostUsd: number | null = 0;
+  let newCostUsd: number | null = 0;
+
+  for (const e of session) {
+    resentTokens += e.cacheReadTokens;
+    newTokens += e.inputTokens + e.outputTokens;
+    cacheWriteTokens += e.cacheWrite5mTokens + e.cacheWrite1hTokens;
+
+    const zero = {
+      model: e.model,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWrite5mTokens: 0,
+      cacheWrite1hTokens: 0,
+    };
+    const reCost = pricing.cost({ ...zero, cacheReadTokens: e.cacheReadTokens });
+    const nwCost = pricing.cost({ ...zero, inputTokens: e.inputTokens, outputTokens: e.outputTokens });
+    if (reCost === null) resentCostUsd = null;
+    else if (resentCostUsd !== null) resentCostUsd += reCost;
+    if (nwCost === null) newCostUsd = null;
+    else if (newCostUsd !== null) newCostUsd += nwCost;
+  }
+
+  const totalTokens = resentTokens + newTokens + cacheWriteTokens;
+  const resentShare = totalTokens > 0 ? resentTokens / totalTokens : 0;
+  const resentCostShare =
+    resentCostUsd !== null && newCostUsd !== null && resentCostUsd + newCostUsd > 0
+      ? resentCostUsd / (resentCostUsd + newCostUsd)
+      : null;
+
+  return {
+    totalTokens,
+    resentTokens,
+    newTokens,
+    cacheWriteTokens,
+    resentShare,
+    resentCostUsd,
+    newCostUsd,
+    resentCostShare,
+  };
+}
+
+// ── personal profile: when do *your* sessions tend to degrade ─────────────────
+
+export interface DegradationProfile {
+  sessionsAnalyzed: number;
+  /** Sessions that ever reached degrading or critical. */
+  degradedCount: number;
+  /** Median turn at which a session first crossed into "watch" territory. */
+  medianTurnsToOnset?: number;
+  /** Median prompt-token size at that onset turn. */
+  medianTokensToOnset?: number;
+  /** Of sessions that crossed 80% fill, the share that compacted only afterwards. */
+  lateCompactionRate?: number;
+}
+
+function median(xs: number[]): number | undefined {
+  if (xs.length === 0) return undefined;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
+}
+
+/**
+ * Learn the user's own pattern: "you tend to degrade around turn ~N / ~Xk
+ * tokens." Onset mirrors the live thresholds — fill ≥ 0.6, or turn ≥ 12 — so the
+ * profile and the live warning agree.
+ */
+export function degradationProfile(entries: LedgerEntry[], gapMs = THIRTY_MIN_MS): DegradationProfile {
+  const hist = sessionHistory(entries, gapMs);
+  const onsetTurns: number[] = [];
+  const onsetTokens: number[] = [];
+  let degradedCount = 0;
+  let crossed80 = 0;
+  let lateCompactions = 0;
+
+  for (const summ of hist) {
+    const { health } = summ;
+    if (STATUS_RANK[health.status] >= STATUS_RANK.degrading) degradedCount++;
+    if (health.peakFill >= 0.8) crossed80++;
+    if (summ.compactedLate) lateCompactions++;
+  }
+
+  for (const session of sessionize(entries, gapMs)) {
+    const win = analyzeSession(session, ms(session[session.length - 1]!.ts)).contextWindow;
+    for (let i = 0; i < session.length; i++) {
+      const p = promptTokens(session[i]!);
+      if (p / win >= 0.6 || i + 1 >= 12) {
+        onsetTurns.push(i + 1);
+        onsetTokens.push(p);
+        break;
+      }
+    }
+  }
+
+  return {
+    sessionsAnalyzed: hist.length,
+    degradedCount,
+    medianTurnsToOnset: median(onsetTurns),
+    medianTokensToOnset: median(onsetTokens),
+    lateCompactionRate: crossed80 > 0 ? lateCompactions / crossed80 : undefined,
+  };
 }

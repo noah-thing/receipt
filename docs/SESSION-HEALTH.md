@@ -50,3 +50,77 @@ Context-window sizes are best-effort current values (see `src/health.ts`); a mod
 ```
 🔋 🟢 5h 22% · wk 6%   🧠 🟡 ctx 64% · 14 turns · context fill
 ```
+
+## Make it automatic: the `guard` hook
+
+The research is unanimous that the fix is to act *before* the cliff, not at it. `receipt guard` turns the detection into a nudge that arrives at the right moment — wire it into a Claude Code hook and it stays silent until a session crosses your gate, then prints the single most important move where the agent will see it.
+
+```json
+// .claude/settings.json
+{
+  "hooks": {
+    "Stop": [
+      { "matcher": "*", "hooks": [
+        { "type": "command", "command": "receipt guard --notify --gate watch" }
+      ]}
+    ],
+    "PreCompact": [
+      { "matcher": "*", "hooks": [
+        { "type": "command", "command": "receipt guard --notify --gate degrading" }
+      ]}
+    ]
+  }
+}
+```
+
+`PreCompact` is the highest-leverage placement: at the instant Claude Code is about to auto-compact — the lossy event the research warns about — `guard` can say "you're past the point where the summary stays faithful; start fresh with a handoff note instead." With `--notify`, `guard` exits 2 so Claude Code feeds the line back to the agent; without it, the line goes to stdout for a person.
+
+A typical nudge:
+
+```
+receipt: session degrading (ctx ~84%, 31 turns) — /compact now (or start a fresh session) — past here, even the summary gets lossy
+```
+
+## Scripting and CI: exit codes + `--json`
+
+`receipt health --quiet --gate degrading` prints nothing and returns an exit code you can branch on: `0` below the gate, `10` at *watch*, `20` at *degrading*, `30` at *critical* (distinct codes, all above the generic failure `1`). `receipt health --json` emits the full `SessionHealth` object for editor plugins and dashboards.
+
+## See your whole history: `receipt health --all`
+
+`receipt health --all` scores every past session and learns your personal pattern — when *you* tend to drift, and whether you habitually compact too late:
+
+```
+🧠 Session history — how your sessions have held up
+
+  #    when             turns   peak ctx   ~compact   verdict
+    2  Tue 9pm           24      78% 🟡        1     watch
+    1  Tue 7pm            3      10% 🟢        0     healthy
+
+  You tend to drift around turn ~12 (~544k ctx tokens).  60% of your sessions that
+  crossed 80% full compacted *after* the fact — try /compact at 60%.
+```
+
+## The context tax
+
+`receipt health` also shows how much of a session is just re-sending itself. As a session grows, most of each turn's tokens are prior context carried forward (cache reads), not new work:
+
+```
+📦 Re-sent context: 🟠 97% of this session's tokens
+   9.9M of 10.3M were prior context carried forward; 169k (2%) was new work.
+   → A long session mostly re-reads itself. A fresh session is cheaper and sharper.
+```
+
+This is the quadratic re-send tax made visible — the same mechanism behind both rising cost *and* fading quality. Caching makes the dollars cheaper per token, but the sheer volume of re-sent context is why a fresh session is the honest win on both axes.
+
+## On the pull request
+
+If the work behind a PR was produced under degrading conditions, Receipt adds a collapsed, review-oriented note to the cost comment — never a scold, always a pointer for the reviewer:
+
+> <details><summary>🧠 Session health — 1 of 2 sessions was degrading</summary>
+> This PR's AI work spanned 2 sessions. The longest ran 31 turns / 96 min, and context peaked at ~92% full (184k/200k) with ~2 auto-compactions. Long, compacted sessions drift — so these changes are worth a careful review for consistency and correctness. Nothing here says the code is wrong; it's a pointer to where to look.</details>
+
+It is **silent** unless a session reached *watch* or worse, addresses the reviewer rather than the author, and proves only *conditions*, never that the code is wrong. Opt out with `health: false` in `.receipt/config.json`.
+
+## What the token-only ledger cannot do
+
+Receipt sees token counts, not content, so it is honest about its blind spots. It **cannot** detect redundant file reads, identical-command loops, or repeated tool calls (the ledger has no per-tool-call paths or command strings), and it cannot see hallucinated files, contradictions, architectural drift, or ignored instructions (those need the prompt and completion text Receipt deliberately never stores). The `looping` signal rides on `retries`, which only the proxy records — imported sessions won't have it. Compaction counts and context fill are *inferred* from prompt-size shape, which is why they always carry a `~`.

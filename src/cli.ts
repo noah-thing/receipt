@@ -33,12 +33,24 @@ import {
   renderStatusline,
   renderAdvice,
   renderHealth,
+  renderHealthHistory,
   healthOneLine,
+  guardLine,
+  healthBlockMarkdown,
   usageBlockMarkdown,
   usageSummaryText,
 } from "./usage-render.js";
 import { recommend, topRecommendation } from "./advice.js";
-import { sessionHealth } from "./health.js";
+import {
+  sessionHealth,
+  sessionHistory,
+  degradationProfile,
+  contextTax,
+  prHealth,
+  latestSession,
+  healthExitCode,
+} from "./health.js";
+import type { HealthStatus } from "./health.js";
 import type { LedgerEntry, PlanBudget, PlanId } from "./types.js";
 
 const program = new Command();
@@ -46,10 +58,28 @@ const program = new Command();
 program
   .name("receipt")
   .description("See exactly what your AI coding agent cost — itemized on every pull request.")
-  .version("0.4.0");
+  .version("0.5.0");
 
 function repoRoot(): string {
   return findRepoRoot();
+}
+
+/** Read and discard stdin so a hook never blocks on an unread pipe. Resolves on a TTY immediately. */
+function drainStdin(): Promise<void> {
+  return new Promise((resolve) => {
+    if (process.stdin.isTTY) return resolve();
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    process.stdin.on("data", () => {});
+    process.stdin.on("end", done);
+    process.stdin.on("error", done);
+    // Safety net: never hang the hook if stdin stays open with no EOF.
+    setTimeout(done, 250).unref?.();
+  });
 }
 
 function fail(message: string): never {
@@ -388,11 +418,57 @@ program
   .command("health")
   .alias("session")
   .description("Is the current session still sharp? Warns before context degrades.")
-  .action(() => {
+  .option("--all", "Show every past session and your degradation profile, not just the current one.")
+  .option("-n, --limit <n>", "How many sessions to show with --all.", "12")
+  .option("--json", "Machine-readable output (the SessionHealth object).")
+  .option("-q, --quiet", "No output; signal only via exit code.")
+  .option("--gate <status>", "Non-zero exit at/above this status: watch|degrading|critical.", "degrading")
+  .action((opts: { all?: boolean; limit: string; json?: boolean; quiet?: boolean; gate: string }) => {
     const root = repoRoot();
     const now = Date.now();
-    const h = sessionHealth(readLedger(ledgerPath(root)), now);
-    process.stdout.write(renderHealth(h));
+    const entries = readLedger(ledgerPath(root));
+
+    if (opts.all) {
+      const rows = sessionHistory(entries);
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(rows.map((r) => r.health), null, 2) + "\n");
+      } else {
+        process.stdout.write(renderHealthHistory(rows, Number(opts.limit) || 12, degradationProfile(entries)));
+      }
+      return;
+    }
+
+    const h = sessionHealth(entries, now);
+    if (opts.json) {
+      process.stdout.write(JSON.stringify(h ?? null, null, 2) + "\n");
+    } else if (!opts.quiet) {
+      const last = latestSession(entries);
+      const tax = last ? contextTax(last, Pricing.load(root)) : undefined;
+      process.stdout.write(renderHealth(h, tax, loadConfig(root).currency ?? "USD"));
+    }
+    // Scriptable signal: 0 below the gate, 10/20/30 at watch/degrading/critical.
+    process.exitCode = healthExitCode(h, opts.gate as HealthStatus);
+  });
+
+// ── guard (Claude Code hook entrypoint) ──────────────────────────────────────
+program
+  .command("guard")
+  .description("Hook entrypoint: nudge the agent the moment a session starts to degrade.")
+  .option("--gate <status>", "Fire at/above this status: watch|degrading|critical.", "watch")
+  .option("--notify", "Exit 2 so Claude Code surfaces the message to the agent.")
+  .action(async (opts: { gate: string; notify?: boolean }) => {
+    await drainStdin(); // tolerate (and ignore) the hook's JSON on stdin
+    const root = repoRoot();
+    const h = sessionHealth(readLedger(ledgerPath(root)), Date.now());
+    const code = healthExitCode(h, opts.gate as HealthStatus);
+    if (!h || code === 0) return; // healthy / fresh: stay silent, exit 0
+    const msg = guardLine(h);
+    if (opts.notify) {
+      process.stderr.write(msg + "\n");
+      process.exitCode = 2; // Claude Code feeds stderr back to the agent on exit 2
+    } else {
+      process.stdout.write(msg + "\n");
+    }
   });
 
 // ── statusline (for Claude Code) ─────────────────────────────────────────────
@@ -490,6 +566,13 @@ function renderPrMarkdown(root: string, branch: string | undefined, base: string
       repoTokens: fun ? estimateRepoTokens(root) : undefined,
     });
     if (block) md += "\n\n" + block;
+  }
+  // Append the retrospective session-health block: was this work produced under
+  // conditions that correlate with drift? Silent unless a session hit "watch"+.
+  if (config.health !== false) {
+    const ph = prHealth(selected, Date.now());
+    const healthBlock = healthBlockMarkdown(ph, { currency });
+    if (healthBlock) md += "\n\n" + healthBlock;
   }
   return md;
 }

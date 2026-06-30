@@ -248,7 +248,10 @@ Recommendations
 ### Keep the session sharp — `receipt health`
 
 ```bash
-receipt health     # is the current session still sharp?
+receipt health           # is the current session still sharp?
+receipt health --all     # every past session + when you tend to drift
+receipt health --json    # machine-readable, for hooks and editors
+receipt guard --notify   # hook entrypoint: nudge the agent before the cliff
 ```
 
 AI coding sessions get *worse before they hit any limit* — context rot, lost-in-the-middle, instruction drift, looping, and lossy auto-compaction all set in while the window still has room. The research is consistent: usable context is only ~50–65% of the advertised window, recall sags past ~50% fill, and multi-turn quality can drop ~39% over a long conversation. Anthropic's own advice is to compact *proactively at 50–60%*, before the summary itself goes lossy.
@@ -266,7 +269,16 @@ Receipt reads the same ledger and estimates, per session, how close you are to t
      → switching tasks? /clear. Long task? checkpoint and start a fresh session.
 ```
 
-It watches context fill (by % *and* absolute size, since big windows degrade by absolute tokens), session length and age, cache reuse (context churn), auto-compaction cascades, and looping. Every suggestion keeps the agent **sharp** — `/compact`, `/clear`, a fresh session, `/rewind` — and never tells it to think or write less. The live gauge also rides along in `receipt statusline` and `receipt fuel`. The signals, thresholds, and the research behind them are in [`docs/SESSION-HEALTH.md`](docs/SESSION-HEALTH.md).
+It watches context fill (by % *and* absolute size, since big windows degrade by absolute tokens), session length and age, cache reuse (context churn), auto-compaction cascades, and looping. Every suggestion keeps the agent **sharp** — `/compact`, `/clear`, a fresh session, `/rewind` — and never tells it to think or write less. The live gauge also rides along in `receipt statusline` and `receipt fuel`.
+
+Four ways it goes further than a single read-out:
+
+- **Act before the cliff, automatically.** `receipt guard` is a [Claude Code hook](https://docs.claude.com/en/docs/claude-code/hooks) entrypoint. Wire it to `Stop` or `PreCompact` and it stays silent until a session crosses your gate, then nudges the agent at exactly the right moment — `--notify` exits 2 so Claude Code feeds the line back to the model. `receipt health --quiet --gate degrading` gives CI a clean exit code (`0/10/20/30`).
+- **See your whole history.** `receipt health --all` scores every past session and learns *your* pattern: "you tend to drift around turn ~12," and whether you habitually compact too late.
+- **The context tax.** It shows how much of a session is just re-sending itself — the quadratic re-send tax that drives both rising cost *and* fading quality. A long session mostly re-reads itself; a fresh one is cheaper and sharper.
+- **On the pull request.** If the work behind a PR ran under degrading conditions, the cost comment gains a collapsed, review-oriented note — silent unless it matters, addressed to the reviewer, and honest that it proves *conditions*, not that the code is wrong.
+
+The signals, thresholds, the automation recipes, and the research behind them are in [`docs/SESSION-HEALTH.md`](docs/SESSION-HEALTH.md).
 
 ## Dashboard
 
@@ -317,7 +329,8 @@ Claude Code, Cursor, Aider, Codex CLI, Continue, the OpenAI and Anthropic SDKs, 
 | `receipt records` | Your heaviest, leanest, and most recent tasks. |
 | `receipt forecast` | A typical task's impact and your weekly runway. |
 | `receipt advice` | How to cut wasted tokens, without making the work worse. |
-| `receipt health` | Whether the current session is still sharp; warns before it degrades. |
+| `receipt health` | Whether the current session is still sharp; warns before it degrades. `--all` for history, `--json`/`--quiet --gate` for scripts. |
+| `receipt guard` | Hook entrypoint: nudge the agent the moment a session degrades (`--notify` for Claude Code). |
 | `receipt statusline` | One-line usage + session-health gauge for the Claude Code statusline. |
 | `receipt calibrate` | Set your real window budget from a limit you hit. |
 

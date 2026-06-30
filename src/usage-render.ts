@@ -6,7 +6,7 @@
  * one-line `statusline`. All numbers come from src/usage.ts; nothing is faked.
  */
 import pc from "picocolors";
-import { progressBar, tokens } from "./util.js";
+import { money, progressBar, tokens } from "./util.js";
 import type { PlanBudget, Receipt } from "./types.js";
 import {
   capacity,
@@ -20,7 +20,14 @@ import {
   type Fuel,
 } from "./usage.js";
 import { costDrivers, type Recommendation } from "./advice.js";
-import type { HealthStatus, SessionHealth } from "./health.js";
+import { STATUS_RANK } from "./health.js";
+import type {
+  ContextTax,
+  HealthStatus,
+  PrHealth,
+  SessionHealth,
+  SessionSummary,
+} from "./health.js";
 import type { LedgerEntry } from "./types.js";
 
 // ── small formatters ─────────────────────────────────────────────────────────
@@ -345,7 +352,11 @@ function sigMark(sev: "ok" | "watch" | "high"): (s: string) => string {
   return (s) => pc.dim("· " + s);
 }
 
-export function renderHealth(h: SessionHealth | undefined): string {
+export function renderHealth(
+  h: SessionHealth | undefined,
+  tax?: ContextTax,
+  currency = "USD",
+): string {
   const out: string[] = [];
   out.push("");
   out.push(pc.bold("🧠 Session health — keeping the agent sharp"));
@@ -373,6 +384,13 @@ export function renderHealth(h: SessionHealth | undefined): string {
       out.push("");
     }
   }
+  if (tax) {
+    const taxBlock = renderContextTax(tax, currency);
+    if (taxBlock) {
+      out.push(taxBlock);
+      out.push("");
+    }
+  }
   out.push(
     pc.dim(
       "Why act early: usable context is only ~50–65% of the window (RULER), and recall sags past ~50% fill. " +
@@ -391,6 +409,180 @@ export function healthOneLine(h: SessionHealth | undefined): string {
   const top = h.signals[0];
   if (top && top.severity !== "ok") parts.push(top.key.replace(/-/g, " "));
   return "🧠 " + parts.join(" · ");
+}
+
+/**
+ * One imperative line for a Claude Code hook (`receipt guard`): the status plus
+ * the single most important move. Short enough to read at a glance mid-task.
+ */
+export function guardLine(h: SessionHealth): string {
+  const top = h.signals[0];
+  const pctFull = Math.round(h.fill * 100);
+  const head = `receipt: session ${h.status} (ctx ~${pctFull}%, ${h.calls} turns)`;
+  return top ? `${head} — ${top.action}` : head;
+}
+
+/** The "context tax" block: how much of a session is just re-sending itself. */
+export function renderContextTax(t: ContextTax, currency = "USD"): string {
+  if (t.totalTokens === 0) return "";
+  const out: string[] = [];
+  const sharePct = Math.round(t.resentShare * 100);
+  const tag = sharePct >= 70 ? "🟠" : sharePct >= 50 ? "🟡" : "🟢";
+  out.push("  " + pc.bold(`📦 Re-sent context: ${tag} ${sharePct}% of this session's tokens`));
+  out.push(
+    pc.dim(
+      `     ${tokens(t.resentTokens)} of ${tokens(t.totalTokens)} were prior context carried ` +
+        `forward; ${tokens(t.newTokens)} (${Math.round((t.newTokens / t.totalTokens) * 100)}%) was new work.`,
+    ),
+  );
+  if (t.resentCostUsd !== null && t.newCostUsd !== null) {
+    const costPct = t.resentCostShare !== null ? Math.round(t.resentCostShare * 100) : 0;
+    out.push(
+      pc.dim(
+        `     Caching kept the cost of that re-send to ${money(t.resentCostUsd, currency)} ` +
+          `of ${money(t.resentCostUsd + t.newCostUsd, currency)} (${costPct}%).`,
+      ),
+    );
+  }
+  if (sharePct >= 50) {
+    out.push(
+      pc.cyan(
+        "     → A long session mostly re-reads itself. A fresh session is cheaper and sharper.",
+      ),
+    );
+  }
+  return out.join("\n");
+}
+
+const STATUS_DOT: Record<HealthStatus, string> = {
+  fresh: "🟢",
+  healthy: "🟢",
+  watch: "🟡",
+  degrading: "🟠",
+  critical: "🔴",
+};
+
+/**
+ * The retrospective health block for the pull-request comment. Collapsed, and
+ * SILENT by default unless a session reached "watch" or worse — it speaks to the
+ * reviewer ("look carefully here"), never scolds the author. With `always` it
+ * emits a single green reassurance line instead.
+ */
+export function healthBlockMarkdown(
+  ph: PrHealth | undefined,
+  opts: { always?: boolean; currency?: string } = {},
+): string {
+  if (!ph) return "";
+  const worthIt = STATUS_RANK[ph.worst] >= STATUS_RANK.watch;
+  if (!worthIt) {
+    if (!opts.always) return "";
+    return (
+      `🧠 Session health — all ${ph.sessions} session${ph.sessions === 1 ? "" : "s"} stayed healthy ` +
+      `(peaked ~${Math.round(ph.peakFill * 100)}% context).`
+    );
+  }
+
+  const flagged = ph.analyzed.filter((h) => STATUS_RANK[h.status] >= STATUS_RANK.watch).length;
+  const peakK = Math.round(ph.peakContextTokens / 1000);
+  const winK = Math.round(ph.peakWindow / 1000);
+  const lines: string[] = [];
+  lines.push("<details>");
+  lines.push(
+    `<summary>🧠 Session health — ${flagged} of ${ph.sessions} session${ph.sessions === 1 ? "" : "s"} ` +
+      `was ${ph.worst}</summary>`,
+  );
+  lines.push("");
+  lines.push(
+    `This PR's AI work spanned **${ph.sessions} session${ph.sessions === 1 ? "" : "s"}**. The longest ran ` +
+      `**${ph.longestTurns} turns / ${Math.round(ph.longestMin)} min**, and context peaked at ` +
+      `**~${Math.round(ph.peakFill * 100)}% full (${peakK}k/${winK}k)**` +
+      (ph.totalCompactions > 0 ? ` with **~${ph.totalCompactions} auto-compaction${ph.totalCompactions === 1 ? "" : "s"}**` : "") +
+      `. Long, compacted sessions drift — early decisions fade and summaries drop precise detail — so these ` +
+      `changes are **worth a careful review** for consistency and correctness. Nothing here says the code is ` +
+      `wrong; it's a pointer to where to look.`,
+  );
+  lines.push("");
+  for (const s of ph.topSignals) {
+    const dotMark = s.severity === "high" ? "🔴" : s.severity === "watch" ? "🟡" : "·";
+    lines.push(`- ${dotMark} ${s.detail}`);
+  }
+  lines.push("");
+  lines.push(
+    "<sub>Measured from token counts only — no prompts or code were read. Usable context is ~50–65% of " +
+      "the window (RULER); recall sags past ~50% fill.</sub>",
+  );
+  lines.push("</details>");
+  return lines.join("\n");
+}
+
+/** Terminal table of how past sessions held up, newest first, plus a profile footer. */
+export function renderHealthHistory(
+  rows: SessionSummary[],
+  limit = 12,
+  profile?: Parameters<typeof degradationProfileLine>[0],
+): string {
+  const out: string[] = [];
+  out.push("");
+  out.push(pc.bold("🧠 Session history — how your sessions have held up"));
+  out.push("");
+  if (rows.length === 0) {
+    out.push(pc.dim("No sessions in the ledger yet. Run your agent (or import it), then check back."));
+    out.push("");
+    return out.join("\n");
+  }
+  const shown = rows.slice(-limit).reverse();
+  out.push(pc.dim("  #    when             turns   peak ctx   ~compact   verdict"));
+  for (const r of shown) {
+    const h = r.health;
+    const when = clockDate(r.startTs).padEnd(14);
+    const turns = String(h.calls).padStart(4);
+    const peak = `${Math.round(h.peakFill * 100)}%`.padStart(5);
+    const peakDot = STATUS_DOT[h.status];
+    const comp = String(h.compactions).padStart(4);
+    const verdict = r.compactedLate
+      ? pc.yellow("compacted late")
+      : h.status === "fresh"
+        ? pc.dim("fresh-ish")
+        : h.status === "healthy"
+          ? pc.green("healthy")
+          : pc.yellow(h.status);
+    out.push(
+      `  ${String(r.index).padStart(3)}  ${when}  ${turns}    ${peak} ${peakDot}     ${comp}     ${verdict}`,
+    );
+  }
+  out.push("");
+  if (profile) {
+    const line = degradationProfileLine(profile);
+    if (line) {
+      out.push(line);
+      out.push("");
+    }
+  }
+  return out.join("\n");
+}
+
+/** One-line personal-pattern footer for `receipt health --all` and `wrapped`. */
+export function degradationProfileLine(p: {
+  sessionsAnalyzed: number;
+  degradedCount: number;
+  medianTurnsToOnset?: number;
+  medianTokensToOnset?: number;
+  lateCompactionRate?: number;
+}): string {
+  if (p.sessionsAnalyzed === 0) return "";
+  const parts: string[] = [];
+  if (p.medianTurnsToOnset !== undefined) {
+    const tok =
+      p.medianTokensToOnset !== undefined ? ` (~${Math.round(p.medianTokensToOnset / 1000)}k ctx tokens)` : "";
+    parts.push(`You tend to drift around turn ~${p.medianTurnsToOnset}${tok}.`);
+  }
+  if (p.lateCompactionRate !== undefined && p.lateCompactionRate > 0) {
+    parts.push(
+      `${Math.round(p.lateCompactionRate * 100)}% of your sessions that crossed 80% full compacted ` +
+        `*after* the fact — try /compact at 60%.`,
+    );
+  }
+  return parts.length ? pc.dim("  " + parts.join("  ")) : "";
 }
 
 export function renderAdvice(receipt: Receipt, recs: Recommendation[]): string {

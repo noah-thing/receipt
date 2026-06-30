@@ -134,6 +134,8 @@ interface ReceiptConfig {
     fun?: boolean;
     /** Set false to drop the usage-impact block from the PR comment and `show`. */
     usage?: boolean;
+    /** Set false to drop the retrospective session-health block from the PR comment. */
+    health?: boolean;
 }
 
 declare class Pricing {
@@ -567,6 +569,9 @@ interface SessionHealth {
     /** Estimated current context size (tokens), from the heaviest of the last few calls. */
     contextTokens: number;
     fill: number;
+    /** The heaviest prompt seen anywhere in the session, and as a fraction of the window. */
+    peakContextTokens: number;
+    peakFill: number;
     cacheReadShare: number;
     compactions: number;
     recentRetries: number;
@@ -581,6 +586,98 @@ interface SessionHealth {
 declare function analyzeSession(session: LedgerEntry[], now: number): SessionHealth;
 /** Analyze the most recent session in the ledger. */
 declare function sessionHealth(entries: LedgerEntry[], now: number): SessionHealth | undefined;
+declare const STATUS_RANK: Record<HealthStatus, number>;
+/**
+ * Exit code per status, for `receipt health --quiet` and `receipt guard`.
+ * Distinct codes (not just 0/1) let a script branch on severity, and they sit
+ * above 1 so they never collide with the generic failure exit.
+ */
+declare const HEALTH_EXIT: Record<HealthStatus, number>;
+/** True when `status` is at or above `gate` in severity. */
+declare function atOrAbove(status: HealthStatus, gate: HealthStatus): boolean;
+/** Exit code for a session under a gate. 0 when below the gate, or no session. */
+declare function healthExitCode(h: SessionHealth | undefined, gate?: HealthStatus): number;
+interface PrHealth {
+    /** Number of distinct sessions that touched this branch/range. */
+    sessions: number;
+    /** Per-session analysis, oldest → newest. */
+    analyzed: SessionHealth[];
+    /** Worst status reached across all of them. */
+    worst: HealthStatus;
+    /** Highest fill fraction reached in any session, and its raw tokens + window. */
+    peakFill: number;
+    peakContextTokens: number;
+    peakWindow: number;
+    /** Inferred auto-compactions summed across sessions. */
+    totalCompactions: number;
+    /** Any session showed a looping signal. */
+    looped: boolean;
+    longestTurns: number;
+    longestMin: number;
+    /** The most important signals, de-duped by key (worst severity wins), max 3. */
+    topSignals: HealthSignal[];
+}
+/**
+ * Aggregate session health across the entries that make up a pull request.
+ *
+ * The live `sessionHealth` asks "is my session degrading right now?"; this asks
+ * the reviewer's question — "was this work produced under conditions that
+ * correlate with drift?" It proves *conditions*, never that the code is wrong.
+ */
+declare function prHealth(selected: LedgerEntry[], now: number, gapMs?: number): PrHealth | undefined;
+interface SessionSummary {
+    /** 1-based chronological index. */
+    index: number;
+    startTs: number;
+    endTs: number;
+    health: SessionHealth;
+    /** The first inferred compaction happened only after fill had already passed 0.8. */
+    compactedLate: boolean;
+}
+/** Analyze every session in the ledger, oldest → newest. */
+declare function sessionHistory(entries: LedgerEntry[], gapMs?: number): SessionSummary[];
+interface ContextTax {
+    totalTokens: number;
+    /** Prior context carried forward each turn — cache reads. */
+    resentTokens: number;
+    /** Genuinely new work — fresh input + generated output. */
+    newTokens: number;
+    /** Context being cached for the first time — cache writes. */
+    cacheWriteTokens: number;
+    /** resentTokens / totalTokens. */
+    resentShare: number;
+    /** Dollar cost of the re-sent context (null if any model is unpriced). */
+    resentCostUsd: number | null;
+    /** Dollar cost of the genuinely-new work. */
+    newCostUsd: number | null;
+    /** resentCostUsd / (resentCostUsd + newCostUsd) — far smaller than the token share, thanks to caching. */
+    resentCostShare: number | null;
+}
+/**
+ * Quantify the quadratic re-send tax. As a session grows, most of each turn's
+ * tokens are prior context carried forward (cache reads), not new work — which
+ * is why a long session both costs more *and* gets duller. Caching keeps the
+ * dollar tax small; showing both numbers keeps the story honest, not alarmist:
+ * a fresh session is cheaper *and* sharper.
+ */
+declare function contextTax(session: LedgerEntry[], pricing: Pricing): ContextTax;
+interface DegradationProfile {
+    sessionsAnalyzed: number;
+    /** Sessions that ever reached degrading or critical. */
+    degradedCount: number;
+    /** Median turn at which a session first crossed into "watch" territory. */
+    medianTurnsToOnset?: number;
+    /** Median prompt-token size at that onset turn. */
+    medianTokensToOnset?: number;
+    /** Of sessions that crossed 80% fill, the share that compacted only afterwards. */
+    lateCompactionRate?: number;
+}
+/**
+ * Learn the user's own pattern: "you tend to degrade around turn ~N / ~Xk
+ * tokens." Onset mirrors the live thresholds — fill ≥ 0.6, or turn ≥ 12 — so the
+ * profile and the live warning agree.
+ */
+declare function degradationProfile(entries: LedgerEntry[], gapMs?: number): DegradationProfile;
 
 interface UsageBlockExtras {
     topTip?: Recommendation;
@@ -607,9 +704,36 @@ declare function usageSummaryText(receipt: Receipt, fuel: Fuel, extras?: {
     fun?: boolean;
     repoTokens?: number;
 }): string;
-declare function renderHealth(h: SessionHealth | undefined): string;
+declare function renderHealth(h: SessionHealth | undefined, tax?: ContextTax, currency?: string): string;
 /** Compact health fragment for the statusline / fuel. */
 declare function healthOneLine(h: SessionHealth | undefined): string;
+/**
+ * One imperative line for a Claude Code hook (`receipt guard`): the status plus
+ * the single most important move. Short enough to read at a glance mid-task.
+ */
+declare function guardLine(h: SessionHealth): string;
+/** The "context tax" block: how much of a session is just re-sending itself. */
+declare function renderContextTax(t: ContextTax, currency?: string): string;
+/**
+ * The retrospective health block for the pull-request comment. Collapsed, and
+ * SILENT by default unless a session reached "watch" or worse — it speaks to the
+ * reviewer ("look carefully here"), never scolds the author. With `always` it
+ * emits a single green reassurance line instead.
+ */
+declare function healthBlockMarkdown(ph: PrHealth | undefined, opts?: {
+    always?: boolean;
+    currency?: string;
+}): string;
+/** Terminal table of how past sessions held up, newest first, plus a profile footer. */
+declare function renderHealthHistory(rows: SessionSummary[], limit?: number, profile?: Parameters<typeof degradationProfileLine>[0]): string;
+/** One-line personal-pattern footer for `receipt health --all` and `wrapped`. */
+declare function degradationProfileLine(p: {
+    sessionsAnalyzed: number;
+    degradedCount: number;
+    medianTurnsToOnset?: number;
+    medianTokensToOnset?: number;
+    lateCompactionRate?: number;
+}): string;
 declare function renderAdvice(receipt: Receipt, recs: Recommendation[]): string;
 
-export { type Budget, COMMENT_MARKER, FIVE_HOURS_MS, type HealthSignal, type HealthStatus, type LedgerEntry, type ModelPrice, type ModelRollup, PLAN_PRESETS, type PlanBudget, type PlanId, type PriceBook, Pricing, type Receipt, type ReceiptConfig, type Recommendation, type SessionHealth, type Severity$1 as Severity, WEEK_MS, analyzeSession, append, appendMany, buildDashboardData, buildReceipt, capacity, captureLimits, contextWindowFor, costDrivers, efficiencyGrade, entryTokens, estimateRepoTokens, fuel, funEquivalences, healthOneLine, importClaudeCode, importGeneric, inWorkUnits, knownRequestIds, latestSession, ledgerPath, paceState, personalStats, presetFor, promptTokens, providerOf, quantile, readLedger, readObservedBudget, recommend, records, renderAdvice, renderForecast, renderFuel, renderHealth, renderMarkdown, renderRecords, renderStatusline, renderText, resolveBudget, selectEntries, sessionHealth, sessionize, taskImpact, taskRollups, taskSizes, topRecommendation, usageBlockMarkdown, usageSummaryText, voiceLine, whatIf, whereItWent, windowState, writeObservedBudget };
+export { type Budget, COMMENT_MARKER, type ContextTax, type DegradationProfile, FIVE_HOURS_MS, HEALTH_EXIT, type HealthSignal, type HealthStatus, type LedgerEntry, type ModelPrice, type ModelRollup, PLAN_PRESETS, type PlanBudget, type PlanId, type PrHealth, type PriceBook, Pricing, type Receipt, type ReceiptConfig, type Recommendation, STATUS_RANK, type SessionHealth, type SessionSummary, type Severity$1 as Severity, WEEK_MS, analyzeSession, append, appendMany, atOrAbove, buildDashboardData, buildReceipt, capacity, captureLimits, contextTax, contextWindowFor, costDrivers, degradationProfile, degradationProfileLine, efficiencyGrade, entryTokens, estimateRepoTokens, fuel, funEquivalences, guardLine, healthBlockMarkdown, healthExitCode, healthOneLine, importClaudeCode, importGeneric, inWorkUnits, knownRequestIds, latestSession, ledgerPath, paceState, personalStats, prHealth, presetFor, promptTokens, providerOf, quantile, readLedger, readObservedBudget, recommend, records, renderAdvice, renderContextTax, renderForecast, renderFuel, renderHealth, renderHealthHistory, renderMarkdown, renderRecords, renderStatusline, renderText, resolveBudget, selectEntries, sessionHealth, sessionHistory, sessionize, taskImpact, taskRollups, taskSizes, topRecommendation, usageBlockMarkdown, usageSummaryText, voiceLine, whatIf, whereItWent, windowState, writeObservedBudget };

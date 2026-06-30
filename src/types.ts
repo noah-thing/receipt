@@ -139,4 +139,6 @@ export interface ReceiptConfig {
   fun?: boolean;
   /** Set false to drop the usage-impact block from the PR comment and `show`. */
   usage?: boolean;
+  /** Set false to drop the retrospective session-health block from the PR comment. */
+  health?: boolean;
 }

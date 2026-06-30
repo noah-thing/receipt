@@ -932,11 +932,11 @@ function records(entries) {
   if (tasks.length === 0) return { streakUnderMedian: 0 };
   const byTokens = [...tasks].sort((a, b) => b.tokens - a.tokens);
   const byRecency = [...tasks].sort((a, b) => b.lastTs - a.lastTs);
-  const median = quantile([...tasks].map((t) => t.tokens).sort((a, b) => a - b), 0.5);
+  const median2 = quantile([...tasks].map((t) => t.tokens).sort((a, b) => a - b), 0.5);
   const latest = byRecency[0];
   let streak = 0;
   for (const t of byRecency) {
-    if (t.tokens < median) streak += 1;
+    if (t.tokens < median2) streak += 1;
     else break;
   }
   return {
@@ -1194,6 +1194,399 @@ function topRecommendation(receipt, pricing) {
   return recommend(receipt, pricing).filter((r) => r.id !== "clean")[0];
 }
 
+// src/health.ts
+var THIRTY_MIN_MS = 30 * 60 * 1e3;
+var CONTEXT_WINDOWS = {
+  "claude-opus-4-8": 1e6,
+  "claude-opus-4-7": 1e6,
+  "claude-opus-4-1": 2e5,
+  "claude-opus-4": 2e5,
+  "claude-sonnet-5": 1e6,
+  "claude-sonnet-4-6": 1e6,
+  "claude-sonnet-4-5": 1e6,
+  "claude-sonnet-4": 1e6,
+  "claude-fable-5": 1e6,
+  "claude-haiku-4-5": 2e5,
+  "claude-3-7-sonnet": 2e5,
+  "claude-3-5-sonnet": 2e5,
+  "claude-3-5-haiku": 2e5,
+  "claude-3-opus": 2e5,
+  "claude-3-haiku": 2e5,
+  "gpt-4o": 128e3,
+  "gpt-4o-mini": 128e3,
+  "gpt-4.1": 1e6,
+  "gpt-4.1-mini": 1e6,
+  "gpt-4.1-nano": 1e6,
+  "o3": 2e5,
+  "o4-mini": 2e5,
+  "gpt-4-turbo": 128e3,
+  "gpt-3.5-turbo": 16e3,
+  "gemini-2.5-pro": 2e6,
+  "gemini-2.5-flash": 1e6,
+  "gemini-2.0-flash": 1e6
+};
+var PREFIX_WINDOWS = [
+  ["claude-opus-4-8", 1e6],
+  ["claude-opus-4-7", 1e6],
+  ["claude-opus", 2e5],
+  ["claude-sonnet", 1e6],
+  ["claude-haiku", 2e5],
+  ["claude-3", 2e5],
+  ["claude-fable", 1e6],
+  ["opus", 2e5],
+  ["sonnet", 1e6],
+  ["haiku", 2e5],
+  ["gpt-4o", 128e3],
+  ["gpt-4.1", 1e6],
+  ["gpt-4-turbo", 128e3],
+  ["gpt-3.5", 16e3],
+  ["o3", 2e5],
+  ["o4", 2e5],
+  ["gemini-2.5-pro", 2e6],
+  ["gemini", 1e6]
+];
+function contextWindowFor(model) {
+  if (Object.prototype.hasOwnProperty.call(CONTEXT_WINDOWS, model)) {
+    return CONTEXT_WINDOWS[model];
+  }
+  for (const [prefix, win] of PREFIX_WINDOWS) {
+    if (model.startsWith(prefix)) return win;
+  }
+  return 2e5;
+}
+function promptTokens(e) {
+  return e.inputTokens + e.cacheReadTokens + e.cacheWrite5mTokens + e.cacheWrite1hTokens;
+}
+function ms2(ts) {
+  return new Date(ts).getTime();
+}
+function sessionize(entries, gapMs = THIRTY_MIN_MS) {
+  const sorted = [...entries].sort((a, b) => ms2(a.ts) - ms2(b.ts));
+  const sessions = [];
+  let cur = [];
+  let prev = 0;
+  for (const e of sorted) {
+    const t = ms2(e.ts);
+    if (cur.length > 0 && t - prev > gapMs) {
+      sessions.push(cur);
+      cur = [];
+    }
+    cur.push(e);
+    prev = t;
+  }
+  if (cur.length) sessions.push(cur);
+  return sessions;
+}
+function latestSession(entries, gapMs = THIRTY_MIN_MS) {
+  const s = sessionize(entries, gapMs);
+  return s[s.length - 1];
+}
+function dominantModel(session) {
+  const counts = /* @__PURE__ */ new Map();
+  for (const e of session) counts.set(e.model, (counts.get(e.model) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "unknown";
+}
+var RANK2 = { ok: 0, watch: 1, high: 2 };
+function analyzeSession(session, now) {
+  const calls = session.length;
+  const first = ms2(session[0].ts);
+  const last = ms2(session[session.length - 1].ts);
+  const durationMin = Math.max(0, (Math.max(last, now) - first) / 6e4);
+  const tail = session.slice(-3);
+  let contextTokens = 0;
+  let contextModel = session[session.length - 1].model;
+  for (const e of tail) {
+    const p = promptTokens(e);
+    if (p >= contextTokens) {
+      contextTokens = p;
+      contextModel = e.model;
+    }
+  }
+  const model = dominantModel(session);
+  const contextWindow = contextWindowFor(contextModel);
+  const fill = contextWindow > 0 ? contextTokens / contextWindow : 0;
+  let peakContextTokens = 0;
+  for (const e of session) peakContextTokens = Math.max(peakContextTokens, promptTokens(e));
+  const peakFill = contextWindow > 0 ? peakContextTokens / contextWindow : 0;
+  const cacheRead = session.reduce((s, e) => s + e.cacheReadTokens, 0);
+  const cacheWrite = session.reduce((s, e) => s + e.cacheWrite5mTokens + e.cacheWrite1hTokens, 0);
+  const cacheReadShare = cacheRead + cacheWrite > 0 ? cacheRead / (cacheRead + cacheWrite) : 1;
+  let compactions = 0;
+  for (let i = 1; i < session.length; i++) {
+    const prev = promptTokens(session[i - 1]);
+    const cur = promptTokens(session[i]);
+    if (prev > contextWindow * 0.3 && cur < prev * 0.5) compactions++;
+  }
+  const recentRetries = session.slice(-5).reduce((s, e) => s + (e.retries ?? 0), 0);
+  let outputDecline = 0;
+  if (calls >= 6) {
+    const third = Math.floor(calls / 3);
+    const early = session.slice(0, third);
+    const lateArr = session.slice(-third);
+    const avg = (xs) => xs.reduce((s, e) => s + e.outputTokens, 0) / xs.length;
+    const e0 = avg(early);
+    const e1 = avg(lateArr);
+    if (e0 > 0) outputDecline = (e0 - e1) / e0;
+  }
+  const signals = [];
+  const fillSev = fill >= 0.9 ? "high" : fill >= 0.8 ? "high" : fill >= 0.6 ? "watch" : "ok";
+  const absSev = contextTokens >= 4e5 ? "high" : contextTokens >= 2e5 ? "watch" : "ok";
+  const ctxSev = RANK2[fillSev] >= RANK2[absSev] ? fillSev : absSev;
+  if (ctxSev !== "ok") {
+    signals.push({
+      key: "context-fill",
+      severity: ctxSev,
+      detail: `Context is ~${Math.round(fill * 100)}% full (${Math.round(contextTokens / 1e3)}k of ${Math.round(contextWindow / 1e3)}k). Usable context is only ~50\u201365% of the window, so quality sags before it's "full."`,
+      action: ctxSev === "high" ? "/compact now (or start a fresh session) \u2014 past here, even the summary gets lossy" : "good moment to /compact \u2014 Anthropic suggests it around 50\u201360%, before quality dips"
+    });
+  }
+  const turnSev = calls >= 25 ? "high" : calls >= 12 ? "watch" : "ok";
+  if (turnSev !== "ok") {
+    signals.push({
+      key: "session-length",
+      severity: turnSev,
+      detail: `${calls} turns this session. Multi-turn drift creeps in past ~12 turns (early decisions fade, the model re-litigates settled points).`,
+      action: "switching tasks? /clear. Long task? checkpoint progress to a file and start a fresh session."
+    });
+  }
+  if (durationMin >= 120) {
+    signals.push({
+      key: "session-duration",
+      severity: "watch",
+      detail: `Running ${Math.round(durationMin)} min. Past ~2h, accumulated state slows the agent independent of context.`,
+      action: "restart the agent to clear the slowdown (your files and git are untouched)."
+    });
+  }
+  if (cacheRead + cacheWrite > 5e4) {
+    const cacheSev = cacheReadShare < 0.2 ? "high" : cacheReadShare < 0.5 ? "watch" : "ok";
+    if (cacheSev !== "ok") {
+      signals.push({
+        key: "cache-health",
+        severity: cacheSev,
+        detail: `Only ${Math.round(cacheReadShare * 100)}% of cache activity is reuse \u2014 the context keeps changing, so cache (and coherence) reset each turn.`,
+        action: "keep the stable parts (system prompt, key files) first and unchanged; let volatile context come last."
+      });
+    }
+  }
+  if (compactions >= 2) {
+    signals.push({
+      key: "compaction-cascade",
+      severity: "high",
+      detail: `~${compactions} auto-compactions this session. Each summary drops precise detail (paths, line numbers, error codes), and summaries of summaries degrade fast.`,
+      action: "start a fresh session with a short handoff note of decisions + next steps, rather than compacting again."
+    });
+  }
+  if (recentRetries >= 3) {
+    signals.push({
+      key: "looping",
+      severity: "watch",
+      detail: `${recentRetries} retries in the last few turns \u2014 a sign the agent is stuck repeating an approach.`,
+      action: "/rewind to before the loop and change approach, or restate the goal with an explicit success check."
+    });
+  }
+  if (outputDecline >= 0.4) {
+    signals.push({
+      key: "output-shrink",
+      severity: "watch",
+      detail: `Responses are ~${Math.round(outputDecline * 100)}% shorter than earlier in the session \u2014 often a sign focus is slipping.`,
+      action: "re-state the task and constraints in a fresh message, or /compact to clear the bloat."
+    });
+  }
+  signals.sort((a, b) => RANK2[b.severity] - RANK2[a.severity]);
+  let status;
+  if (calls < 3) status = "fresh";
+  else {
+    const worst = signals.reduce((m, s) => Math.max(m, RANK2[s.severity]), 0);
+    if (worst === RANK2.high) status = fill >= 0.9 || compactions >= 2 ? "critical" : "degrading";
+    else if (worst === RANK2.watch) status = "watch";
+    else status = "healthy";
+  }
+  return {
+    calls,
+    durationMin,
+    model,
+    contextWindow,
+    contextTokens,
+    fill,
+    peakContextTokens,
+    peakFill,
+    cacheReadShare,
+    compactions,
+    recentRetries,
+    status,
+    signals
+  };
+}
+function sessionHealth(entries, now) {
+  const s = latestSession(entries);
+  if (!s || s.length === 0) return void 0;
+  return analyzeSession(s, now);
+}
+var STATUS_ORDER = ["fresh", "healthy", "watch", "degrading", "critical"];
+var STATUS_RANK = {
+  fresh: 0,
+  healthy: 1,
+  watch: 2,
+  degrading: 3,
+  critical: 4
+};
+var HEALTH_EXIT = {
+  fresh: 0,
+  healthy: 0,
+  watch: 10,
+  degrading: 20,
+  critical: 30
+};
+function atOrAbove(status, gate) {
+  return STATUS_ORDER.indexOf(status) >= STATUS_ORDER.indexOf(gate);
+}
+function healthExitCode(h, gate = "degrading") {
+  if (!h) return 0;
+  return atOrAbove(h.status, gate) ? HEALTH_EXIT[h.status] : 0;
+}
+function prHealth(selected, now, gapMs = THIRTY_MIN_MS) {
+  if (selected.length === 0) return void 0;
+  const sessions = sessionize(selected, gapMs);
+  const analyzed = sessions.map((s) => {
+    const end = ms2(s[s.length - 1].ts);
+    return analyzeSession(s, end);
+  });
+  let worst = "fresh";
+  let peakFill = 0;
+  let peakContextTokens = 0;
+  let peakWindow = 2e5;
+  let totalCompactions = 0;
+  let looped = false;
+  let longestTurns = 0;
+  let longestMin = 0;
+  const sigByKey = /* @__PURE__ */ new Map();
+  for (const h of analyzed) {
+    if (STATUS_RANK[h.status] > STATUS_RANK[worst]) worst = h.status;
+    if (h.peakFill > peakFill) {
+      peakFill = h.peakFill;
+      peakContextTokens = h.peakContextTokens;
+      peakWindow = h.contextWindow;
+    }
+    totalCompactions += h.compactions;
+    if (h.recentRetries >= 3) looped = true;
+    longestTurns = Math.max(longestTurns, h.calls);
+    longestMin = Math.max(longestMin, h.durationMin);
+    for (const s of h.signals) {
+      const prev = sigByKey.get(s.key);
+      if (!prev || RANK2[s.severity] > RANK2[prev.severity]) sigByKey.set(s.key, s);
+    }
+  }
+  const topSignals = [...sigByKey.values()].sort((a, b) => RANK2[b.severity] - RANK2[a.severity]).slice(0, 3);
+  return {
+    sessions: analyzed.length,
+    analyzed,
+    worst,
+    peakFill,
+    peakContextTokens,
+    peakWindow,
+    totalCompactions,
+    looped,
+    longestTurns,
+    longestMin,
+    topSignals
+  };
+}
+function sessionHistory(entries, gapMs = THIRTY_MIN_MS) {
+  return sessionize(entries, gapMs).map((s, i) => {
+    const endTs = ms2(s[s.length - 1].ts);
+    const health = analyzeSession(s, endTs);
+    let peakBefore = 0;
+    let compactedLate = false;
+    for (let j = 1; j < s.length; j++) {
+      const prev = promptTokens(s[j - 1]);
+      const cur = promptTokens(s[j]);
+      peakBefore = Math.max(peakBefore, prev / health.contextWindow);
+      if (prev > health.contextWindow * 0.3 && cur < prev * 0.5) {
+        compactedLate = peakBefore >= 0.8;
+        break;
+      }
+    }
+    return { index: i + 1, startTs: ms2(s[0].ts), endTs, health, compactedLate };
+  });
+}
+function contextTax(session, pricing) {
+  let resentTokens = 0;
+  let newTokens = 0;
+  let cacheWriteTokens = 0;
+  let resentCostUsd = 0;
+  let newCostUsd = 0;
+  for (const e of session) {
+    resentTokens += e.cacheReadTokens;
+    newTokens += e.inputTokens + e.outputTokens;
+    cacheWriteTokens += e.cacheWrite5mTokens + e.cacheWrite1hTokens;
+    const zero = {
+      model: e.model,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWrite5mTokens: 0,
+      cacheWrite1hTokens: 0
+    };
+    const reCost = pricing.cost({ ...zero, cacheReadTokens: e.cacheReadTokens });
+    const nwCost = pricing.cost({ ...zero, inputTokens: e.inputTokens, outputTokens: e.outputTokens });
+    if (reCost === null) resentCostUsd = null;
+    else if (resentCostUsd !== null) resentCostUsd += reCost;
+    if (nwCost === null) newCostUsd = null;
+    else if (newCostUsd !== null) newCostUsd += nwCost;
+  }
+  const totalTokens2 = resentTokens + newTokens + cacheWriteTokens;
+  const resentShare = totalTokens2 > 0 ? resentTokens / totalTokens2 : 0;
+  const resentCostShare = resentCostUsd !== null && newCostUsd !== null && resentCostUsd + newCostUsd > 0 ? resentCostUsd / (resentCostUsd + newCostUsd) : null;
+  return {
+    totalTokens: totalTokens2,
+    resentTokens,
+    newTokens,
+    cacheWriteTokens,
+    resentShare,
+    resentCostUsd,
+    newCostUsd,
+    resentCostShare
+  };
+}
+function median(xs) {
+  if (xs.length === 0) return void 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+function degradationProfile(entries, gapMs = THIRTY_MIN_MS) {
+  const hist = sessionHistory(entries, gapMs);
+  const onsetTurns = [];
+  const onsetTokens = [];
+  let degradedCount = 0;
+  let crossed80 = 0;
+  let lateCompactions = 0;
+  for (const summ of hist) {
+    const { health } = summ;
+    if (STATUS_RANK[health.status] >= STATUS_RANK.degrading) degradedCount++;
+    if (health.peakFill >= 0.8) crossed80++;
+    if (summ.compactedLate) lateCompactions++;
+  }
+  for (const session of sessionize(entries, gapMs)) {
+    const win = analyzeSession(session, ms2(session[session.length - 1].ts)).contextWindow;
+    for (let i = 0; i < session.length; i++) {
+      const p = promptTokens(session[i]);
+      if (p / win >= 0.6 || i + 1 >= 12) {
+        onsetTurns.push(i + 1);
+        onsetTokens.push(p);
+        break;
+      }
+    }
+  }
+  return {
+    sessionsAnalyzed: hist.length,
+    degradedCount,
+    medianTurnsToOnset: median(onsetTurns),
+    medianTokensToOnset: median(onsetTokens),
+    lateCompactionRate: crossed80 > 0 ? lateCompactions / crossed80 : void 0
+  };
+}
+
 // src/usage-render.ts
 function until(now, target) {
   let s = Math.max(0, Math.round((target - now) / 1e3));
@@ -1442,7 +1835,7 @@ function sigMark(sev) {
   if (sev === "watch") return (s) => import_picocolors.default.yellow("\u{1F7E1} " + s);
   return (s) => import_picocolors.default.dim("\xB7 " + s);
 }
-function renderHealth(h) {
+function renderHealth(h, tax, currency = "USD") {
   const out = [];
   out.push("");
   out.push(import_picocolors.default.bold("\u{1F9E0} Session health \u2014 keeping the agent sharp"));
@@ -1466,6 +1859,13 @@ function renderHealth(h) {
       out.push("");
     }
   }
+  if (tax) {
+    const taxBlock = renderContextTax(tax, currency);
+    if (taxBlock) {
+      out.push(taxBlock);
+      out.push("");
+    }
+  }
   out.push(
     import_picocolors.default.dim(
       "Why act early: usable context is only ~50\u201365% of the window (RULER), and recall sags past ~50% fill. Compacting before the wall keeps quality high \u2014 it doesn't make the agent do less."
@@ -1481,6 +1881,126 @@ function healthOneLine(h) {
   const top = h.signals[0];
   if (top && top.severity !== "ok") parts.push(top.key.replace(/-/g, " "));
   return "\u{1F9E0} " + parts.join(" \xB7 ");
+}
+function guardLine(h) {
+  const top = h.signals[0];
+  const pctFull = Math.round(h.fill * 100);
+  const head = `receipt: session ${h.status} (ctx ~${pctFull}%, ${h.calls} turns)`;
+  return top ? `${head} \u2014 ${top.action}` : head;
+}
+function renderContextTax(t, currency = "USD") {
+  if (t.totalTokens === 0) return "";
+  const out = [];
+  const sharePct = Math.round(t.resentShare * 100);
+  const tag = sharePct >= 70 ? "\u{1F7E0}" : sharePct >= 50 ? "\u{1F7E1}" : "\u{1F7E2}";
+  out.push("  " + import_picocolors.default.bold(`\u{1F4E6} Re-sent context: ${tag} ${sharePct}% of this session's tokens`));
+  out.push(
+    import_picocolors.default.dim(
+      `     ${tokens(t.resentTokens)} of ${tokens(t.totalTokens)} were prior context carried forward; ${tokens(t.newTokens)} (${Math.round(t.newTokens / t.totalTokens * 100)}%) was new work.`
+    )
+  );
+  if (t.resentCostUsd !== null && t.newCostUsd !== null) {
+    const costPct = t.resentCostShare !== null ? Math.round(t.resentCostShare * 100) : 0;
+    out.push(
+      import_picocolors.default.dim(
+        `     Caching kept the cost of that re-send to ${money(t.resentCostUsd, currency)} of ${money(t.resentCostUsd + t.newCostUsd, currency)} (${costPct}%).`
+      )
+    );
+  }
+  if (sharePct >= 50) {
+    out.push(
+      import_picocolors.default.cyan(
+        "     \u2192 A long session mostly re-reads itself. A fresh session is cheaper and sharper."
+      )
+    );
+  }
+  return out.join("\n");
+}
+var STATUS_DOT = {
+  fresh: "\u{1F7E2}",
+  healthy: "\u{1F7E2}",
+  watch: "\u{1F7E1}",
+  degrading: "\u{1F7E0}",
+  critical: "\u{1F534}"
+};
+function healthBlockMarkdown(ph, opts = {}) {
+  if (!ph) return "";
+  const worthIt = STATUS_RANK[ph.worst] >= STATUS_RANK.watch;
+  if (!worthIt) {
+    if (!opts.always) return "";
+    return `\u{1F9E0} Session health \u2014 all ${ph.sessions} session${ph.sessions === 1 ? "" : "s"} stayed healthy (peaked ~${Math.round(ph.peakFill * 100)}% context).`;
+  }
+  const flagged = ph.analyzed.filter((h) => STATUS_RANK[h.status] >= STATUS_RANK.watch).length;
+  const peakK = Math.round(ph.peakContextTokens / 1e3);
+  const winK = Math.round(ph.peakWindow / 1e3);
+  const lines = [];
+  lines.push("<details>");
+  lines.push(
+    `<summary>\u{1F9E0} Session health \u2014 ${flagged} of ${ph.sessions} session${ph.sessions === 1 ? "" : "s"} was ${ph.worst}</summary>`
+  );
+  lines.push("");
+  lines.push(
+    `This PR's AI work spanned **${ph.sessions} session${ph.sessions === 1 ? "" : "s"}**. The longest ran **${ph.longestTurns} turns / ${Math.round(ph.longestMin)} min**, and context peaked at **~${Math.round(ph.peakFill * 100)}% full (${peakK}k/${winK}k)**` + (ph.totalCompactions > 0 ? ` with **~${ph.totalCompactions} auto-compaction${ph.totalCompactions === 1 ? "" : "s"}**` : "") + `. Long, compacted sessions drift \u2014 early decisions fade and summaries drop precise detail \u2014 so these changes are **worth a careful review** for consistency and correctness. Nothing here says the code is wrong; it's a pointer to where to look.`
+  );
+  lines.push("");
+  for (const s of ph.topSignals) {
+    const dotMark = s.severity === "high" ? "\u{1F534}" : s.severity === "watch" ? "\u{1F7E1}" : "\xB7";
+    lines.push(`- ${dotMark} ${s.detail}`);
+  }
+  lines.push("");
+  lines.push(
+    "<sub>Measured from token counts only \u2014 no prompts or code were read. Usable context is ~50\u201365% of the window (RULER); recall sags past ~50% fill.</sub>"
+  );
+  lines.push("</details>");
+  return lines.join("\n");
+}
+function renderHealthHistory(rows, limit = 12, profile) {
+  const out = [];
+  out.push("");
+  out.push(import_picocolors.default.bold("\u{1F9E0} Session history \u2014 how your sessions have held up"));
+  out.push("");
+  if (rows.length === 0) {
+    out.push(import_picocolors.default.dim("No sessions in the ledger yet. Run your agent (or import it), then check back."));
+    out.push("");
+    return out.join("\n");
+  }
+  const shown = rows.slice(-limit).reverse();
+  out.push(import_picocolors.default.dim("  #    when             turns   peak ctx   ~compact   verdict"));
+  for (const r of shown) {
+    const h = r.health;
+    const when = clockDate(r.startTs).padEnd(14);
+    const turns = String(h.calls).padStart(4);
+    const peak = `${Math.round(h.peakFill * 100)}%`.padStart(5);
+    const peakDot = STATUS_DOT[h.status];
+    const comp = String(h.compactions).padStart(4);
+    const verdict = r.compactedLate ? import_picocolors.default.yellow("compacted late") : h.status === "fresh" ? import_picocolors.default.dim("fresh-ish") : h.status === "healthy" ? import_picocolors.default.green("healthy") : import_picocolors.default.yellow(h.status);
+    out.push(
+      `  ${String(r.index).padStart(3)}  ${when}  ${turns}    ${peak} ${peakDot}     ${comp}     ${verdict}`
+    );
+  }
+  out.push("");
+  if (profile) {
+    const line = degradationProfileLine(profile);
+    if (line) {
+      out.push(line);
+      out.push("");
+    }
+  }
+  return out.join("\n");
+}
+function degradationProfileLine(p) {
+  if (p.sessionsAnalyzed === 0) return "";
+  const parts = [];
+  if (p.medianTurnsToOnset !== void 0) {
+    const tok = p.medianTokensToOnset !== void 0 ? ` (~${Math.round(p.medianTokensToOnset / 1e3)}k ctx tokens)` : "";
+    parts.push(`You tend to drift around turn ~${p.medianTurnsToOnset}${tok}.`);
+  }
+  if (p.lateCompactionRate !== void 0 && p.lateCompactionRate > 0) {
+    parts.push(
+      `${Math.round(p.lateCompactionRate * 100)}% of your sessions that crossed 80% full compacted *after* the fact \u2014 try /compact at 60%.`
+    );
+  }
+  return parts.length ? import_picocolors.default.dim("  " + parts.join("  ")) : "";
 }
 function renderAdvice(receipt, recs) {
   const out = [];
@@ -1507,250 +2027,35 @@ function renderAdvice(receipt, recs) {
   }
   return out.join("\n");
 }
-
-// src/health.ts
-var THIRTY_MIN_MS = 30 * 60 * 1e3;
-var CONTEXT_WINDOWS = {
-  "claude-opus-4-8": 1e6,
-  "claude-opus-4-7": 1e6,
-  "claude-opus-4-1": 2e5,
-  "claude-opus-4": 2e5,
-  "claude-sonnet-5": 1e6,
-  "claude-sonnet-4-6": 1e6,
-  "claude-sonnet-4-5": 1e6,
-  "claude-sonnet-4": 1e6,
-  "claude-fable-5": 1e6,
-  "claude-haiku-4-5": 2e5,
-  "claude-3-7-sonnet": 2e5,
-  "claude-3-5-sonnet": 2e5,
-  "claude-3-5-haiku": 2e5,
-  "claude-3-opus": 2e5,
-  "claude-3-haiku": 2e5,
-  "gpt-4o": 128e3,
-  "gpt-4o-mini": 128e3,
-  "gpt-4.1": 1e6,
-  "gpt-4.1-mini": 1e6,
-  "gpt-4.1-nano": 1e6,
-  "o3": 2e5,
-  "o4-mini": 2e5,
-  "gpt-4-turbo": 128e3,
-  "gpt-3.5-turbo": 16e3,
-  "gemini-2.5-pro": 2e6,
-  "gemini-2.5-flash": 1e6,
-  "gemini-2.0-flash": 1e6
-};
-var PREFIX_WINDOWS = [
-  ["claude-opus-4-8", 1e6],
-  ["claude-opus-4-7", 1e6],
-  ["claude-opus", 2e5],
-  ["claude-sonnet", 1e6],
-  ["claude-haiku", 2e5],
-  ["claude-3", 2e5],
-  ["claude-fable", 1e6],
-  ["opus", 2e5],
-  ["sonnet", 1e6],
-  ["haiku", 2e5],
-  ["gpt-4o", 128e3],
-  ["gpt-4.1", 1e6],
-  ["gpt-4-turbo", 128e3],
-  ["gpt-3.5", 16e3],
-  ["o3", 2e5],
-  ["o4", 2e5],
-  ["gemini-2.5-pro", 2e6],
-  ["gemini", 1e6]
-];
-function contextWindowFor(model) {
-  if (Object.prototype.hasOwnProperty.call(CONTEXT_WINDOWS, model)) {
-    return CONTEXT_WINDOWS[model];
-  }
-  for (const [prefix, win] of PREFIX_WINDOWS) {
-    if (model.startsWith(prefix)) return win;
-  }
-  return 2e5;
-}
-function promptTokens(e) {
-  return e.inputTokens + e.cacheReadTokens + e.cacheWrite5mTokens + e.cacheWrite1hTokens;
-}
-function ms2(ts) {
-  return new Date(ts).getTime();
-}
-function sessionize(entries, gapMs = THIRTY_MIN_MS) {
-  const sorted = [...entries].sort((a, b) => ms2(a.ts) - ms2(b.ts));
-  const sessions = [];
-  let cur = [];
-  let prev = 0;
-  for (const e of sorted) {
-    const t = ms2(e.ts);
-    if (cur.length > 0 && t - prev > gapMs) {
-      sessions.push(cur);
-      cur = [];
-    }
-    cur.push(e);
-    prev = t;
-  }
-  if (cur.length) sessions.push(cur);
-  return sessions;
-}
-function latestSession(entries, gapMs = THIRTY_MIN_MS) {
-  const s = sessionize(entries, gapMs);
-  return s[s.length - 1];
-}
-function dominantModel(session) {
-  const counts = /* @__PURE__ */ new Map();
-  for (const e of session) counts.set(e.model, (counts.get(e.model) ?? 0) + 1);
-  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "unknown";
-}
-var RANK2 = { ok: 0, watch: 1, high: 2 };
-function analyzeSession(session, now) {
-  const calls = session.length;
-  const first = ms2(session[0].ts);
-  const last = ms2(session[session.length - 1].ts);
-  const durationMin = Math.max(0, (Math.max(last, now) - first) / 6e4);
-  const tail = session.slice(-3);
-  let contextTokens = 0;
-  let contextModel = session[session.length - 1].model;
-  for (const e of tail) {
-    const p = promptTokens(e);
-    if (p >= contextTokens) {
-      contextTokens = p;
-      contextModel = e.model;
-    }
-  }
-  const model = dominantModel(session);
-  const contextWindow = contextWindowFor(contextModel);
-  const fill = contextWindow > 0 ? contextTokens / contextWindow : 0;
-  const cacheRead = session.reduce((s, e) => s + e.cacheReadTokens, 0);
-  const cacheWrite = session.reduce((s, e) => s + e.cacheWrite5mTokens + e.cacheWrite1hTokens, 0);
-  const cacheReadShare = cacheRead + cacheWrite > 0 ? cacheRead / (cacheRead + cacheWrite) : 1;
-  let compactions = 0;
-  for (let i = 1; i < session.length; i++) {
-    const prev = promptTokens(session[i - 1]);
-    const cur = promptTokens(session[i]);
-    if (prev > contextWindow * 0.3 && cur < prev * 0.5) compactions++;
-  }
-  const recentRetries = session.slice(-5).reduce((s, e) => s + (e.retries ?? 0), 0);
-  let outputDecline = 0;
-  if (calls >= 6) {
-    const third = Math.floor(calls / 3);
-    const early = session.slice(0, third);
-    const lateArr = session.slice(-third);
-    const avg = (xs) => xs.reduce((s, e) => s + e.outputTokens, 0) / xs.length;
-    const e0 = avg(early);
-    const e1 = avg(lateArr);
-    if (e0 > 0) outputDecline = (e0 - e1) / e0;
-  }
-  const signals = [];
-  const fillSev = fill >= 0.9 ? "high" : fill >= 0.8 ? "high" : fill >= 0.6 ? "watch" : "ok";
-  const absSev = contextTokens >= 4e5 ? "high" : contextTokens >= 2e5 ? "watch" : "ok";
-  const ctxSev = RANK2[fillSev] >= RANK2[absSev] ? fillSev : absSev;
-  if (ctxSev !== "ok") {
-    signals.push({
-      key: "context-fill",
-      severity: ctxSev,
-      detail: `Context is ~${Math.round(fill * 100)}% full (${Math.round(contextTokens / 1e3)}k of ${Math.round(contextWindow / 1e3)}k). Usable context is only ~50\u201365% of the window, so quality sags before it's "full."`,
-      action: ctxSev === "high" ? "/compact now (or start a fresh session) \u2014 past here, even the summary gets lossy" : "good moment to /compact \u2014 Anthropic suggests it around 50\u201360%, before quality dips"
-    });
-  }
-  const turnSev = calls >= 25 ? "high" : calls >= 12 ? "watch" : "ok";
-  if (turnSev !== "ok") {
-    signals.push({
-      key: "session-length",
-      severity: turnSev,
-      detail: `${calls} turns this session. Multi-turn drift creeps in past ~12 turns (early decisions fade, the model re-litigates settled points).`,
-      action: "switching tasks? /clear. Long task? checkpoint progress to a file and start a fresh session."
-    });
-  }
-  if (durationMin >= 120) {
-    signals.push({
-      key: "session-duration",
-      severity: "watch",
-      detail: `Running ${Math.round(durationMin)} min. Past ~2h, accumulated state slows the agent independent of context.`,
-      action: "restart the agent to clear the slowdown (your files and git are untouched)."
-    });
-  }
-  if (cacheRead + cacheWrite > 5e4) {
-    const cacheSev = cacheReadShare < 0.2 ? "high" : cacheReadShare < 0.5 ? "watch" : "ok";
-    if (cacheSev !== "ok") {
-      signals.push({
-        key: "cache-health",
-        severity: cacheSev,
-        detail: `Only ${Math.round(cacheReadShare * 100)}% of cache activity is reuse \u2014 the context keeps changing, so cache (and coherence) reset each turn.`,
-        action: "keep the stable parts (system prompt, key files) first and unchanged; let volatile context come last."
-      });
-    }
-  }
-  if (compactions >= 2) {
-    signals.push({
-      key: "compaction-cascade",
-      severity: "high",
-      detail: `~${compactions} auto-compactions this session. Each summary drops precise detail (paths, line numbers, error codes), and summaries of summaries degrade fast.`,
-      action: "start a fresh session with a short handoff note of decisions + next steps, rather than compacting again."
-    });
-  }
-  if (recentRetries >= 3) {
-    signals.push({
-      key: "looping",
-      severity: "watch",
-      detail: `${recentRetries} retries in the last few turns \u2014 a sign the agent is stuck repeating an approach.`,
-      action: "/rewind to before the loop and change approach, or restate the goal with an explicit success check."
-    });
-  }
-  if (outputDecline >= 0.4) {
-    signals.push({
-      key: "output-shrink",
-      severity: "watch",
-      detail: `Responses are ~${Math.round(outputDecline * 100)}% shorter than earlier in the session \u2014 often a sign focus is slipping.`,
-      action: "re-state the task and constraints in a fresh message, or /compact to clear the bloat."
-    });
-  }
-  signals.sort((a, b) => RANK2[b.severity] - RANK2[a.severity]);
-  let status;
-  if (calls < 3) status = "fresh";
-  else {
-    const worst = signals.reduce((m, s) => Math.max(m, RANK2[s.severity]), 0);
-    if (worst === RANK2.high) status = fill >= 0.9 || compactions >= 2 ? "critical" : "degrading";
-    else if (worst === RANK2.watch) status = "watch";
-    else status = "healthy";
-  }
-  return {
-    calls,
-    durationMin,
-    model,
-    contextWindow,
-    contextTokens,
-    fill,
-    cacheReadShare,
-    compactions,
-    recentRetries,
-    status,
-    signals
-  };
-}
-function sessionHealth(entries, now) {
-  const s = latestSession(entries);
-  if (!s || s.length === 0) return void 0;
-  return analyzeSession(s, now);
-}
 export {
   COMMENT_MARKER,
   FIVE_HOURS_MS,
+  HEALTH_EXIT,
   PLAN_PRESETS,
   Pricing,
+  STATUS_RANK,
   WEEK_MS,
   analyzeSession,
   append,
   appendMany,
+  atOrAbove,
   buildDashboardData,
   buildReceipt,
   capacity,
   captureLimits,
+  contextTax,
   contextWindowFor,
   costDrivers,
+  degradationProfile,
+  degradationProfileLine,
   efficiencyGrade,
   entryTokens,
   estimateRepoTokens,
   fuel,
   funEquivalences,
+  guardLine,
+  healthBlockMarkdown,
+  healthExitCode,
   healthOneLine,
   importClaudeCode,
   importGeneric,
@@ -1760,6 +2065,7 @@ export {
   ledgerPath,
   paceState,
   personalStats,
+  prHealth,
   presetFor,
   promptTokens,
   providerOf,
@@ -1769,9 +2075,11 @@ export {
   recommend,
   records,
   renderAdvice,
+  renderContextTax,
   renderForecast,
   renderFuel,
   renderHealth,
+  renderHealthHistory,
   renderMarkdown,
   renderRecords,
   renderStatusline,
@@ -1779,6 +2087,7 @@ export {
   resolveBudget,
   selectEntries,
   sessionHealth,
+  sessionHistory,
   sessionize,
   taskImpact,
   taskRollups,

@@ -58,9 +58,33 @@ export {
   latestSession,
   contextWindowFor,
   promptTokens,
+  prHealth,
+  sessionHistory,
+  contextTax,
+  degradationProfile,
+  atOrAbove,
+  healthExitCode,
+  STATUS_RANK,
+  HEALTH_EXIT,
 } from "./health.js";
-export type { SessionHealth, HealthSignal, HealthStatus } from "./health.js";
-export { renderHealth, healthOneLine } from "./usage-render.js";
+export type {
+  SessionHealth,
+  HealthSignal,
+  HealthStatus,
+  PrHealth,
+  SessionSummary,
+  ContextTax,
+  DegradationProfile,
+} from "./health.js";
+export {
+  renderHealth,
+  healthOneLine,
+  guardLine,
+  healthBlockMarkdown,
+  renderHealthHistory,
+  renderContextTax,
+  degradationProfileLine,
+} from "./usage-render.js";
 export type {
   LedgerEntry,
   ModelPrice,
