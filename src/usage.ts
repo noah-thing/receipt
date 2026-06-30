@@ -155,6 +155,7 @@ const DEFAULT_SIZES: TaskSizes = {
 /** Learn typical task sizes (in tokens) from the branch distribution. */
 export function taskSizes(entries: LedgerEntry[]): TaskSizes {
   const totals = taskRollups(entries)
+    .filter((t) => t.key !== "(unscoped)")
     .map((t) => t.tokens)
     .filter((n) => n > 0)
     .sort((a, b) => a - b);
@@ -176,7 +177,7 @@ export interface PersonalStats {
 }
 
 export function personalStats(entries: LedgerEntry[]): PersonalStats {
-  const tasks = taskRollups(entries).filter((t) => t.tokens > 0);
+  const tasks = taskRollups(entries).filter((t) => t.tokens > 0 && t.key !== "(unscoped)");
   const tokensSorted = tasks.map((t) => t.tokens).sort((a, b) => a - b);
   const costSorted = tasks.map((t) => t.cost).sort((a, b) => a - b);
   const meanTokens = tasks.length ? tasks.reduce((s, t) => s + t.tokens, 0) / tasks.length : 0;
@@ -329,9 +330,11 @@ export interface WhatIf {
  * input + cache reads) on a cheaper model. The lever everyone has but rarely
  * pulls: stop paying Opus prices to re-read files.
  */
-export function whatIf(receipt: Receipt, pricing: Pricing, cheaper = "claude-haiku-4-5"): WhatIf | undefined {
+export function whatIf(receipt: Receipt, pricing: Pricing, cheaper?: string): WhatIf | undefined {
   const top = receipt.byModel.find((m) => m.priced && m.costUsd > 0);
-  if (!top || top.model === cheaper) return undefined;
+  if (!top) return undefined;
+  cheaper = cheaper ?? pricing.cheapestModel(top.provider) ?? "claude-haiku-4-5";
+  if (top.model === cheaper) return undefined;
   const readTokens = { inputTokens: top.inputTokens, cacheReadTokens: top.cacheReadTokens };
   const base = {
     outputTokens: 0,
@@ -487,6 +490,16 @@ export function writeObservedBudget(root: string, budget: PlanBudget): void {
 }
 
 /**
+ * The preset for a plan id, or undefined. Uses an own-property check so a
+ * hand-edited or malformed config (e.g. "toString") can never resolve to an
+ * inherited Object.prototype member and poison the budget with a function.
+ */
+export function presetFor(plan: string | undefined): PlanBudget | undefined {
+  if (!plan || !Object.prototype.hasOwnProperty.call(PLAN_PRESETS, plan)) return undefined;
+  return PLAN_PRESETS[plan as Exclude<PlanId, "custom">];
+}
+
+/**
  * Resolve the budget to use, best source first: a live/calibrated value, then
  * a custom config value, then the plan preset. Undefined when no plan is set,
  * in which case the renderers fall back to history-only framings.
@@ -495,8 +508,7 @@ export function resolveBudget(config: ReceiptConfig, root: string): PlanBudget |
   const observed = readObservedBudget(root);
   if (observed) return observed;
   if (config.planBudget) return config.planBudget;
-  if (config.plan && config.plan !== "custom") return PLAN_PRESETS[config.plan];
-  return undefined;
+  return presetFor(config.plan);
 }
 
 /**
@@ -526,6 +538,10 @@ export function captureLimits(getHeader: (name: string) => string | null, root: 
   // the weekly estimate grows toward the true ceiling rather than thrashing.
   const fiveHour = Math.max(limit, existing?.fiveHour ?? 0);
   const weekly = Math.max(existing?.weekly ?? 0, fiveHour * 5);
+  // Skip the write when nothing changed, so a busy proxy isn't hammering disk.
+  if (existing && existing.source === "observed" && existing.fiveHour === fiveHour && existing.weekly === weekly) {
+    return;
+  }
   writeObservedBudget(root, { fiveHour, weekly, source: "observed" });
 }
 

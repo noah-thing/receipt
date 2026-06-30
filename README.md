@@ -213,6 +213,8 @@ Put the gauge where you work, so awareness happens mid-task rather than after:
 🔋 🟢 5h 11% · wk 4% · ~15 PRs this size · resets 3h30m
 ```
 
+Don't want any of it? Set `"usage": false` in `.receipt/config.json` and the block disappears from the PR comment and `receipt show`.
+
 ## Dashboard
 
 ```bash

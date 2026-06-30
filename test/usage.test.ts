@@ -14,8 +14,11 @@ import {
   quantile,
   readObservedBudget,
   records,
+  resolveBudget,
+  presetFor,
   taskImpact,
   taskSizes,
+  whatIf,
   whereItWent,
   windowState,
   writeObservedBudget,
@@ -23,7 +26,8 @@ import {
   WEEK_MS,
 } from "../src/usage.js";
 import { buildReceipt } from "../src/receipt.js";
-import type { LedgerEntry, PlanBudget } from "../src/types.js";
+import { Pricing } from "../src/pricing.js";
+import type { LedgerEntry, PlanBudget, ReceiptConfig } from "../src/types.js";
 
 function e(over: Partial<LedgerEntry>): LedgerEntry {
   return {
@@ -238,5 +242,90 @@ describe("observed budget round-trip + captureLimits", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("presetFor (foolproof against bad plan ids)", () => {
+  it("returns a budget for real plans", () => {
+    expect(presetFor("max5x")?.fiveHour).toBeGreaterThan(0);
+    expect(presetFor("pro")?.plan).toBe("pro");
+  });
+  it("never resolves an inherited prototype member", () => {
+    // 'toString' in PLAN_PRESETS is true via the prototype — must not leak.
+    expect(presetFor("toString")).toBeUndefined();
+    expect(presetFor("constructor")).toBeUndefined();
+    expect(presetFor("custom")).toBeUndefined();
+    expect(presetFor(undefined)).toBeUndefined();
+  });
+});
+
+describe("resolveBudget precedence", () => {
+  it("prefers observed > custom > preset and ignores garbage plans", () => {
+    const dir = mkdtempSync(join(tmpdir(), "receipt-budget-"));
+    try {
+      expect(resolveBudget({ plan: "max5x" }, dir)?.source).toBe("preset");
+
+      const custom: ReceiptConfig = {
+        plan: "max5x",
+        planBudget: { fiveHour: 9, weekly: 90, source: "custom" },
+      };
+      expect(resolveBudget(custom, dir)?.source).toBe("custom");
+
+      expect(resolveBudget({ plan: "toString" as unknown as ReceiptConfig["plan"] }, dir)).toBeUndefined();
+
+      writeObservedBudget(dir, { fiveHour: 1, weekly: 5, source: "observed" });
+      expect(resolveBudget(custom, dir)?.source).toBe("observed");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cheapestModel + whatIf", () => {
+  const pricing = Pricing.load();
+  const reads = (model: string, n: number) =>
+    pricing.cost({
+      model,
+      inputTokens: n,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWrite5mTokens: 0,
+      cacheWrite1hTokens: 0,
+    });
+
+  it("picks a cheaper model from the same provider", () => {
+    const anthropic = pricing.cheapestModel("anthropic")!;
+    const openai = pricing.cheapestModel("openai")!;
+    expect(reads(anthropic, 1_000_000)!).toBeLessThan(reads("claude-opus-4-8", 1_000_000)!);
+    expect(openai.startsWith("gpt") || openai.startsWith("o")).toBe(true);
+  });
+
+  it("reports a saving for an expensive top model", () => {
+    const r = buildReceipt([
+      e({ model: "claude-opus-4-8", inputTokens: 500_000, cacheReadTokens: 500_000, outputTokens: 10_000, costUsd: 10 }),
+    ]);
+    const w = whatIf(r, pricing)!;
+    expect(w.saved).toBeGreaterThan(0);
+    expect(w.fromModel).toBe("claude-opus-4-8");
+  });
+
+  it("returns undefined when the top model is already the cheapest", () => {
+    const cheap = pricing.cheapestModel()!;
+    const r = buildReceipt([e({ model: cheap, inputTokens: 100, outputTokens: 100, costUsd: 0.01 })]);
+    expect(whatIf(r, pricing, cheap)).toBeUndefined();
+  });
+});
+
+describe("taskSizes ignores unscoped bulk", () => {
+  it("does not let proxy-only (unscoped) usage skew sizes", () => {
+    const entries: LedgerEntry[] = [
+      e({ inputTokens: 9_000_000, outputTokens: 0, cacheReadTokens: 0 }), // no branch -> unscoped, huge
+    ];
+    for (let i = 1; i <= 5; i++) {
+      entries.push(e({ git: { branch: `b${i}` }, inputTokens: i * 1000, outputTokens: 0, cacheReadTokens: 0 }));
+    }
+    const s = taskSizes(entries);
+    expect(s.learned).toBe(true);
+    expect(s.feature).toBeLessThan(1_000_000); // the 9M unscoped lump was excluded
   });
 });

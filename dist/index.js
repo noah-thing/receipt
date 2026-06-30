@@ -211,6 +211,22 @@ var Pricing = class _Pricing {
     return price ? price.verified !== false : false;
   }
   /**
+   * The cheapest model in the book by input rate, preferring one from the same
+   * provider so the what-if lever stays sensible (don't suggest a Claude model
+   * to an OpenAI user). Skips the bare aliases. Falls back across providers.
+   */
+  cheapestModel(preferProvider) {
+    const ALIASES = /* @__PURE__ */ new Set(["opus", "sonnet", "haiku"]);
+    let best;
+    for (const [id, price] of Object.entries(this.book.models)) {
+      if (typeof price.input !== "number" || ALIASES.has(id)) continue;
+      if (preferProvider && providerOf(id) !== preferProvider) continue;
+      if (!best || price.input < best.rate) best = { id, rate: price.input };
+    }
+    if (!best && preferProvider) return this.cheapestModel();
+    return best?.id;
+  }
+  /**
    * Cost in USD for one metered call. Returns `null` when the model is
    * unknown, so the caller can surface "unpriced" rather than invent a zero.
    */
@@ -805,7 +821,7 @@ var DEFAULT_SIZES = {
   learned: false
 };
 function taskSizes(entries) {
-  const totals = taskRollups(entries).map((t) => t.tokens).filter((n) => n > 0).sort((a, b) => a - b);
+  const totals = taskRollups(entries).filter((t) => t.key !== "(unscoped)").map((t) => t.tokens).filter((n) => n > 0).sort((a, b) => a - b);
   if (totals.length < 4) return DEFAULT_SIZES;
   return {
     quick: Math.max(1, Math.round(quantile(totals, 0.25))),
@@ -816,7 +832,7 @@ function taskSizes(entries) {
   };
 }
 function personalStats(entries) {
-  const tasks = taskRollups(entries).filter((t) => t.tokens > 0);
+  const tasks = taskRollups(entries).filter((t) => t.tokens > 0 && t.key !== "(unscoped)");
   const tokensSorted = tasks.map((t) => t.tokens).sort((a, b) => a - b);
   const costSorted = tasks.map((t) => t.cost).sort((a, b) => a - b);
   const meanTokens = tasks.length ? tasks.reduce((s, t) => s + t.tokens, 0) / tasks.length : 0;
@@ -886,9 +902,11 @@ function whereItWent(receipt) {
     cacheWrite: cacheWrite / total
   };
 }
-function whatIf(receipt, pricing, cheaper = "claude-haiku-4-5") {
+function whatIf(receipt, pricing, cheaper) {
   const top = receipt.byModel.find((m) => m.priced && m.costUsd > 0);
-  if (!top || top.model === cheaper) return void 0;
+  if (!top) return void 0;
+  cheaper = cheaper ?? pricing.cheapestModel(top.provider) ?? "claude-haiku-4-5";
+  if (top.model === cheaper) return void 0;
   const readTokens = { inputTokens: top.inputTokens, cacheReadTokens: top.cacheReadTokens };
   const base = {
     outputTokens: 0,
@@ -995,12 +1013,15 @@ function writeObservedBudget(root, budget) {
   mkdirSync3(dirname4(path), { recursive: true });
   writeFileSync2(path, JSON.stringify(budget, null, 2) + "\n", "utf8");
 }
+function presetFor(plan) {
+  if (!plan || !Object.prototype.hasOwnProperty.call(PLAN_PRESETS, plan)) return void 0;
+  return PLAN_PRESETS[plan];
+}
 function resolveBudget(config, root) {
   const observed = readObservedBudget(root);
   if (observed) return observed;
   if (config.planBudget) return config.planBudget;
-  if (config.plan && config.plan !== "custom") return PLAN_PRESETS[config.plan];
-  return void 0;
+  return presetFor(config.plan);
 }
 function captureLimits(getHeader, root) {
   const num2 = (name) => {
@@ -1014,6 +1035,9 @@ function captureLimits(getHeader, root) {
   const existing = readObservedBudget(root);
   const fiveHour = Math.max(limit, existing?.fiveHour ?? 0);
   const weekly = Math.max(existing?.weekly ?? 0, fiveHour * 5);
+  if (existing && existing.source === "observed" && existing.fiveHour === fiveHour && existing.weekly === weekly) {
+    return;
+  }
   writeObservedBudget(root, { fiveHour, weekly, source: "observed" });
 }
 var SKIP_DIRS = /* @__PURE__ */ new Set([
@@ -1300,6 +1324,7 @@ export {
   ledgerPath,
   paceState,
   personalStats,
+  presetFor,
   providerOf,
   quantile,
   readLedger,

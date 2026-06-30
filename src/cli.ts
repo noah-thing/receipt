@@ -42,7 +42,7 @@ const program = new Command();
 program
   .name("receipt")
   .description("See exactly what your AI coding agent cost — itemized on every pull request.")
-  .version("0.2.0");
+  .version("0.2.1");
 
 function repoRoot(): string {
   return findRepoRoot();
@@ -165,15 +165,17 @@ program
     }
     let out = "\n" + colorizeText(renderText(receipt), config) + "\n";
     // The usage block: what this branch cost *you*, against your plan window.
-    const allEntries = readLedger(ledgerPath(root));
-    const f = fuel(allEntries, resolveBudget(config, root), Date.now());
-    const fun = Boolean(opts.fun) || config.fun === true;
-    const summary = usageSummaryText(receipt, f, {
-      whatIf: whatIf(receipt, Pricing.load(root)),
-      fun,
-      repoTokens: fun ? estimateRepoTokens(root) : undefined,
-    });
-    if (summary) out += "\n" + summary + "\n";
+    if (config.usage !== false) {
+      const allEntries = readLedger(ledgerPath(root));
+      const f = fuel(allEntries, resolveBudget(config, root), Date.now());
+      const fun = Boolean(opts.fun) || config.fun === true;
+      const summary = usageSummaryText(receipt, f, {
+        whatIf: whatIf(receipt, Pricing.load(root)),
+        fun,
+        repoTokens: fun ? estimateRepoTokens(root) : undefined,
+      });
+      if (summary) out += "\n" + summary + "\n";
+    }
     process.stdout.write(out + "\n");
   });
 
@@ -293,7 +295,7 @@ budgetCmd
   .description("Set your subscription tier for usage-window math: pro, max5x, or max20x.")
   .action((id: string) => {
     const root = repoRoot();
-    if (!(id in PLAN_PRESETS)) fail("Plan must be one of: pro, max5x, max20x.");
+    if (!["pro", "max5x", "max20x"].includes(id)) fail("Plan must be one of: pro, max5x, max20x.");
     const config = loadConfig(root);
     config.plan = id as PlanId;
     saveConfig(root, config);
@@ -437,14 +439,16 @@ function renderPrMarkdown(root: string, branch: string | undefined, base: string
     priceUpdated: pricing.updated(),
   });
   // Append the usage-impact block: what this PR cost *you* against your plan.
-  const f = fuel(entries, resolveBudget(config, root), Date.now());
-  const fun = config.fun === true;
-  const block = usageBlockMarkdown(receipt, f, {
-    whatIf: whatIf(receipt, pricing),
-    fun,
-    repoTokens: fun ? estimateRepoTokens(root) : undefined,
-  });
-  if (block) md += "\n\n" + block;
+  if (config.usage !== false) {
+    const f = fuel(entries, resolveBudget(config, root), Date.now());
+    const fun = config.fun === true;
+    const block = usageBlockMarkdown(receipt, f, {
+      whatIf: whatIf(receipt, pricing),
+      fun,
+      repoTokens: fun ? estimateRepoTokens(root) : undefined,
+    });
+    if (block) md += "\n\n" + block;
+  }
   return md;
 }
 

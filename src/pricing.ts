@@ -68,6 +68,23 @@ export class Pricing {
   }
 
   /**
+   * The cheapest model in the book by input rate, preferring one from the same
+   * provider so the what-if lever stays sensible (don't suggest a Claude model
+   * to an OpenAI user). Skips the bare aliases. Falls back across providers.
+   */
+  cheapestModel(preferProvider?: string): string | undefined {
+    const ALIASES = new Set(["opus", "sonnet", "haiku"]);
+    let best: { id: string; rate: number } | undefined;
+    for (const [id, price] of Object.entries(this.book.models)) {
+      if (typeof price.input !== "number" || ALIASES.has(id)) continue;
+      if (preferProvider && providerOf(id) !== preferProvider) continue;
+      if (!best || price.input < best.rate) best = { id, rate: price.input };
+    }
+    if (!best && preferProvider) return this.cheapestModel();
+    return best?.id;
+  }
+
+  /**
    * Cost in USD for one metered call. Returns `null` when the model is
    * unknown, so the caller can surface "unpriced" rather than invent a zero.
    */

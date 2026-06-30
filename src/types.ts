@@ -137,4 +137,6 @@ export interface ReceiptConfig {
   planBudget?: PlanBudget;
   /** Show playful real-world equivalences by default. */
   fun?: boolean;
+  /** Set false to drop the usage-impact block from the PR comment and `show`. */
+  usage?: boolean;
 }

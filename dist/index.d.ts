@@ -132,6 +132,8 @@ interface ReceiptConfig {
     planBudget?: PlanBudget;
     /** Show playful real-world equivalences by default. */
     fun?: boolean;
+    /** Set false to drop the usage-impact block from the PR comment and `show`. */
+    usage?: boolean;
 }
 
 declare class Pricing {
@@ -149,6 +151,12 @@ declare class Pricing {
     /** Resolve a model id to its price card, trying exact match then prefixes. */
     priceFor(model: string): ModelPrice | undefined;
     isVerified(model: string): boolean;
+    /**
+     * The cheapest model in the book by input rate, preferring one from the same
+     * provider so the what-if lever stays sensible (don't suggest a Claude model
+     * to an OpenAI user). Skips the bare aliases. Falls back across providers.
+     */
+    cheapestModel(preferProvider?: string): string | undefined;
     /**
      * Cost in USD for one metered call. Returns `null` when the model is
      * unknown, so the caller can surface "unpriced" rather than invent a zero.
@@ -451,6 +459,12 @@ declare function taskImpact(taskTokens: number, budget: PlanBudget | undefined):
 declare function readObservedBudget(root: string): PlanBudget | undefined;
 declare function writeObservedBudget(root: string, budget: PlanBudget): void;
 /**
+ * The preset for a plan id, or undefined. Uses an own-property check so a
+ * hand-edited or malformed config (e.g. "toString") can never resolve to an
+ * inherited Object.prototype member and poison the budget with a function.
+ */
+declare function presetFor(plan: string | undefined): PlanBudget | undefined;
+/**
  * Resolve the budget to use, best source first: a live/calibrated value, then
  * a custom config value, then the plan preset. Undefined when no plan is set,
  * in which case the renderers fall back to history-only framings.
@@ -498,4 +512,4 @@ declare function usageSummaryText(receipt: Receipt, fuel: Fuel, extras?: {
     repoTokens?: number;
 }): string;
 
-export { type Budget, COMMENT_MARKER, FIVE_HOURS_MS, type LedgerEntry, type ModelPrice, type ModelRollup, PLAN_PRESETS, type PlanBudget, type PlanId, type PriceBook, Pricing, type Receipt, type ReceiptConfig, WEEK_MS, append, appendMany, buildDashboardData, buildReceipt, capacity, captureLimits, efficiencyGrade, entryTokens, estimateRepoTokens, fuel, funEquivalences, importClaudeCode, importGeneric, inWorkUnits, knownRequestIds, ledgerPath, paceState, personalStats, providerOf, quantile, readLedger, readObservedBudget, records, renderForecast, renderFuel, renderMarkdown, renderRecords, renderStatusline, renderText, resolveBudget, selectEntries, taskImpact, taskRollups, taskSizes, usageBlockMarkdown, usageSummaryText, voiceLine, whatIf, whereItWent, windowState, writeObservedBudget };
+export { type Budget, COMMENT_MARKER, FIVE_HOURS_MS, type LedgerEntry, type ModelPrice, type ModelRollup, PLAN_PRESETS, type PlanBudget, type PlanId, type PriceBook, Pricing, type Receipt, type ReceiptConfig, WEEK_MS, append, appendMany, buildDashboardData, buildReceipt, capacity, captureLimits, efficiencyGrade, entryTokens, estimateRepoTokens, fuel, funEquivalences, importClaudeCode, importGeneric, inWorkUnits, knownRequestIds, ledgerPath, paceState, personalStats, presetFor, providerOf, quantile, readLedger, readObservedBudget, records, renderForecast, renderFuel, renderMarkdown, renderRecords, renderStatusline, renderText, resolveBudget, selectEntries, taskImpact, taskRollups, taskSizes, usageBlockMarkdown, usageSummaryText, voiceLine, whatIf, whereItWent, windowState, writeObservedBudget };

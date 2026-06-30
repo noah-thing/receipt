@@ -3242,6 +3242,22 @@ var Pricing = class _Pricing {
     return price ? price.verified !== false : false;
   }
   /**
+   * The cheapest model in the book by input rate, preferring one from the same
+   * provider so the what-if lever stays sensible (don't suggest a Claude model
+   * to an OpenAI user). Skips the bare aliases. Falls back across providers.
+   */
+  cheapestModel(preferProvider) {
+    const ALIASES = /* @__PURE__ */ new Set(["opus", "sonnet", "haiku"]);
+    let best;
+    for (const [id, price] of Object.entries(this.book.models)) {
+      if (typeof price.input !== "number" || ALIASES.has(id)) continue;
+      if (preferProvider && providerOf(id) !== preferProvider) continue;
+      if (!best || price.input < best.rate) best = { id, rate: price.input };
+    }
+    if (!best && preferProvider) return this.cheapestModel();
+    return best?.id;
+  }
+  /**
    * Cost in USD for one metered call. Returns `null` when the model is
    * unknown, so the caller can surface "unpriced" rather than invent a zero.
    */
@@ -3872,7 +3888,7 @@ var DEFAULT_SIZES = {
   learned: false
 };
 function taskSizes(entries) {
-  const totals = taskRollups(entries).map((t) => t.tokens).filter((n) => n > 0).sort((a, b) => a - b);
+  const totals = taskRollups(entries).filter((t) => t.key !== "(unscoped)").map((t) => t.tokens).filter((n) => n > 0).sort((a, b) => a - b);
   if (totals.length < 4) return DEFAULT_SIZES;
   return {
     quick: Math.max(1, Math.round(quantile(totals, 0.25))),
@@ -3941,9 +3957,11 @@ function whereItWent(receipt) {
     cacheWrite: cacheWrite / total
   };
 }
-function whatIf(receipt, pricing, cheaper = "claude-haiku-4-5") {
+function whatIf(receipt, pricing, cheaper) {
   const top = receipt.byModel.find((m) => m.priced && m.costUsd > 0);
-  if (!top || top.model === cheaper) return void 0;
+  if (!top) return void 0;
+  cheaper = cheaper ?? pricing.cheapestModel(top.provider) ?? "claude-haiku-4-5";
+  if (top.model === cheaper) return void 0;
   const readTokens = { inputTokens: top.inputTokens, cacheReadTokens: top.cacheReadTokens };
   const base = {
     outputTokens: 0,
@@ -4050,12 +4068,15 @@ function writeObservedBudget(root, budget) {
   mkdirSync3(dirname4(path), { recursive: true });
   writeFileSync2(path, JSON.stringify(budget, null, 2) + "\n", "utf8");
 }
+function presetFor(plan) {
+  if (!plan || !Object.prototype.hasOwnProperty.call(PLAN_PRESETS, plan)) return void 0;
+  return PLAN_PRESETS[plan];
+}
 function resolveBudget(config, root) {
   const observed = readObservedBudget(root);
   if (observed) return observed;
   if (config.planBudget) return config.planBudget;
-  if (config.plan && config.plan !== "custom") return PLAN_PRESETS[config.plan];
-  return void 0;
+  return presetFor(config.plan);
 }
 function captureLimits(getHeader, root) {
   const num2 = (name) => {
@@ -4069,6 +4090,9 @@ function captureLimits(getHeader, root) {
   const existing = readObservedBudget(root);
   const fiveHour = Math.max(limit, existing?.fiveHour ?? 0);
   const weekly = Math.max(existing?.weekly ?? 0, fiveHour * 5);
+  if (existing && existing.source === "observed" && existing.fiveHour === fiveHour && existing.weekly === weekly) {
+    return;
+  }
   writeObservedBudget(root, { fiveHour, weekly, source: "observed" });
 }
 var SKIP_DIRS = /* @__PURE__ */ new Set([
@@ -4702,7 +4726,7 @@ function usageSummaryText(receipt, fuel2, extras = {}) {
 
 // src/cli.ts
 var program2 = new Command();
-program2.name("receipt").description("See exactly what your AI coding agent cost \u2014 itemized on every pull request.").version("0.2.0");
+program2.name("receipt").description("See exactly what your AI coding agent cost \u2014 itemized on every pull request.").version("0.2.1");
 function repoRoot() {
   return findRepoRoot();
 }
@@ -4787,15 +4811,17 @@ program2.command("show").description("Print the receipt for the current branch t
     return;
   }
   let out = "\n" + colorizeText(renderText(receipt), config) + "\n";
-  const allEntries = readLedger(ledgerPath(root));
-  const f = fuel(allEntries, resolveBudget(config, root), Date.now());
-  const fun = Boolean(opts.fun) || config.fun === true;
-  const summary = usageSummaryText(receipt, f, {
-    whatIf: whatIf(receipt, Pricing.load(root)),
-    fun,
-    repoTokens: fun ? estimateRepoTokens(root) : void 0
-  });
-  if (summary) out += "\n" + summary + "\n";
+  if (config.usage !== false) {
+    const allEntries = readLedger(ledgerPath(root));
+    const f = fuel(allEntries, resolveBudget(config, root), Date.now());
+    const fun = Boolean(opts.fun) || config.fun === true;
+    const summary = usageSummaryText(receipt, f, {
+      whatIf: whatIf(receipt, Pricing.load(root)),
+      fun,
+      repoTokens: fun ? estimateRepoTokens(root) : void 0
+    });
+    if (summary) out += "\n" + summary + "\n";
+  }
   process.stdout.write(out + "\n");
 });
 program2.command("pr").description("Render the pull-request receipt as markdown (prints to stdout).").option("--branch <branch>", "branch to scope to (default: current)").option("--base <base>", "base branch to diff against", "main").option("--out <file>", "write to a file instead of stdout").action((opts) => {
@@ -4873,7 +4899,7 @@ budgetCmd.command("set <scope> <amount>").description("Set a budget. scope is 'p
 });
 budgetCmd.command("plan <id>").description("Set your subscription tier for usage-window math: pro, max5x, or max20x.").action((id) => {
   const root = repoRoot();
-  if (!(id in PLAN_PRESETS)) fail("Plan must be one of: pro, max5x, max20x.");
+  if (!["pro", "max5x", "max20x"].includes(id)) fail("Plan must be one of: pro, max5x, max20x.");
   const config = loadConfig(root);
   config.plan = id;
   saveConfig(root, config);
@@ -4975,14 +5001,16 @@ function renderPrMarkdown(root, branch, base) {
     series: selected.map((e) => ({ ts: e.ts, cost: e.costUsd ?? 0 })),
     priceUpdated: pricing.updated()
   });
-  const f = fuel(entries, resolveBudget(config, root), Date.now());
-  const fun = config.fun === true;
-  const block = usageBlockMarkdown(receipt, f, {
-    whatIf: whatIf(receipt, pricing),
-    fun,
-    repoTokens: fun ? estimateRepoTokens(root) : void 0
-  });
-  if (block) md += "\n\n" + block;
+  if (config.usage !== false) {
+    const f = fuel(entries, resolveBudget(config, root), Date.now());
+    const fun = config.fun === true;
+    const block = usageBlockMarkdown(receipt, f, {
+      whatIf: whatIf(receipt, pricing),
+      fun,
+      repoTokens: fun ? estimateRepoTokens(root) : void 0
+    });
+    if (block) md += "\n\n" + block;
+  }
   return md;
 }
 function colorizeText(text, _config) {
