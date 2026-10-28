@@ -54,7 +54,7 @@ export interface ClaudeImportOptions {
   repo?: string;
 }
 
-function* jsonlFiles(dir: string): Generator<string> {
+export function* jsonlFiles(dir: string): Generator<string> {
   if (!existsSync(dir)) return;
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
@@ -67,7 +67,7 @@ function* jsonlFiles(dir: string): Generator<string> {
   }
 }
 
-function insideRepo(cwd: string | undefined, root: string): boolean {
+export function insideRepo(cwd: string | undefined, root: string): boolean {
   if (!cwd) return false;
   return cwd === root || cwd.startsWith(root.endsWith("/") ? root : root + "/");
 }

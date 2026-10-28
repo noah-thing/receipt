@@ -121,7 +121,7 @@ describe("Pricing", () => {
     expect(def.priceFor("gpt-9")).toBeUndefined();
   });
 
-  it("every price card has a verified flag only when it is false", () => {
+  it("flags prices that could not be confirmed", () => {
     const def = Pricing.load();
     expect(def.isVerified("claude-3-opus")).toBe(false);
     expect(def.isVerified("o3")).toBe(true);

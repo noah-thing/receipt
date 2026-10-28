@@ -3820,6 +3820,89 @@ async function importClaudeCode(opts) {
   return out;
 }
 
+// src/importers/codex.ts
+import { createInterface as createInterface2 } from "readline";
+import { createReadStream as createReadStream2 } from "fs";
+import { homedir as homedir2 } from "os";
+import { join as join6 } from "path";
+function defaultCodexDir() {
+  return join6(process.env.CODEX_HOME ?? join6(homedir2(), ".codex"), "sessions");
+}
+async function importCodex(opts) {
+  const dir = opts.dir ?? defaultCodexDir();
+  const sinceMs = opts.sinceTs ? new Date(opts.sinceTs).getTime() : void 0;
+  const seen = opts.seen ?? /* @__PURE__ */ new Set();
+  const out = [];
+  const dedupeWithin = /* @__PURE__ */ new Set();
+  for (const file of jsonlFiles(dir)) {
+    const rl = createInterface2({
+      input: createReadStream2(file, { encoding: "utf8" }),
+      crlfDelay: Infinity
+    });
+    let sessionCwd;
+    let branch;
+    const turns = /* @__PURE__ */ new Map();
+    let lastTurn;
+    for await (const line of rl) {
+      const interesting = line.includes('"token_usage_record"') || line.includes('"turn_context"') || line.includes('"session_meta"');
+      if (!interesting) continue;
+      let o;
+      try {
+        o = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const p = o.payload;
+      if (!p) continue;
+      if (o.type === "session_meta") {
+        sessionCwd = p.cwd;
+        branch = p.git?.branch && p.git.branch !== "HEAD" ? p.git.branch : void 0;
+        continue;
+      }
+      if (o.type === "turn_context") {
+        lastTurn = { model: p.model, cwd: p.cwd };
+        if (p.turn_id) turns.set(p.turn_id, lastTurn);
+        continue;
+      }
+      if (o.type !== "token_usage_record" || !p.usage) continue;
+      const turn = (p.turn_id ? turns.get(p.turn_id) : void 0) ?? lastTurn;
+      const model = turn?.model;
+      if (!model) continue;
+      const cwd = turn?.cwd ?? sessionCwd;
+      if (!opts.all && opts.repoRoot && !insideRepo(cwd, opts.repoRoot)) continue;
+      if (opts.branch && branch !== opts.branch) continue;
+      const ts = o.timestamp ?? (/* @__PURE__ */ new Date(0)).toISOString();
+      if (sinceMs !== void 0 && new Date(ts).getTime() < sinceMs) continue;
+      const id = p.response_id;
+      if (id) {
+        if (seen.has(id) || dedupeWithin.has(id)) continue;
+        dedupeWithin.add(id);
+      }
+      const total = p.usage.input_tokens ?? 0;
+      const cached = Math.min(p.usage.cached_input_tokens ?? 0, total);
+      const partial = {
+        model,
+        inputTokens: total - cached,
+        outputTokens: p.usage.output_tokens ?? 0,
+        cacheReadTokens: cached,
+        cacheWrite5mTokens: 0,
+        cacheWrite1hTokens: 0
+      };
+      out.push({
+        ts,
+        source: "codex",
+        provider: providerOf(model),
+        costUsd: opts.pricing.cost(partial),
+        ...partial,
+        requestId: id,
+        git: { branch, repo: opts.repo }
+      });
+    }
+  }
+  out.sort((a, b) => a.ts.localeCompare(b.ts));
+  return out;
+}
+
 // src/importers/generic.ts
 import { readFileSync as readFileSync5 } from "fs";
 function num(o, ...keys) {
@@ -3894,7 +3977,7 @@ import { createServer } from "http";
 
 // src/usage.ts
 import { existsSync as existsSync6, mkdirSync as mkdirSync3, readdirSync as readdirSync2, readFileSync as readFileSync6, statSync as statSync2, writeFileSync as writeFileSync2 } from "fs";
-import { dirname as dirname4, join as join6 } from "path";
+import { dirname as dirname4, join as join7 } from "path";
 var FIVE_HOURS_MS = 5 * 60 * 60 * 1e3;
 var WEEK_MS = 7 * 24 * 60 * 60 * 1e3;
 var PLAN_PRESETS = {
@@ -4119,7 +4202,7 @@ function taskImpact(taskTokens, budget) {
   };
 }
 function limitsPath(root) {
-  return join6(root, ".receipt", "limits.json");
+  return join7(root, ".receipt", "limits.json");
 }
 function readObservedBudget(root) {
   const path = limitsPath(root);
@@ -4189,10 +4272,10 @@ function estimateRepoTokens(root, maxFiles = 4e3) {
       if (seen >= maxFiles) return;
       if (ent.isDirectory()) {
         if (SKIP_DIRS.has(ent.name) || ent.name.startsWith(".")) continue;
-        walk(join6(dir, ent.name));
+        walk(join7(dir, ent.name));
       } else if (ent.isFile() && TEXT_EXT.test(ent.name)) {
         try {
-          const size = statSync2(join6(dir, ent.name)).size;
+          const size = statSync2(join7(dir, ent.name)).size;
           if (size <= 2e6) {
             chars += size;
             seen += 1;
@@ -4430,7 +4513,7 @@ function startProxy(opts) {
 // src/dashboard.ts
 import { createServer as createServer2 } from "http";
 import { readFileSync as readFileSync7 } from "fs";
-import { dirname as dirname5, join as join7 } from "path";
+import { dirname as dirname5, join as join8 } from "path";
 import { fileURLToPath } from "url";
 var totalTokens = (e) => e.inputTokens + e.outputTokens + e.cacheReadTokens + e.cacheWrite5mTokens + e.cacheWrite1hTokens;
 function buildDashboardData(entries, config = {}) {
@@ -4488,8 +4571,8 @@ function buildDashboardData(entries, config = {}) {
 function templatePath() {
   const here = dirname5(fileURLToPath(import.meta.url));
   for (const candidate of [
-    join7(here, "..", "dashboard", "template.html"),
-    join7(here, "dashboard", "template.html")
+    join8(here, "..", "dashboard", "template.html"),
+    join8(here, "dashboard", "template.html")
   ]) {
     try {
       readFileSync7(candidate);
@@ -5586,6 +5669,21 @@ importCmd.command("claude-code").alias("claude").description("Import token usage
     seen
   });
   writeEntries(root, entries, "claude-code");
+});
+importCmd.command("codex").description("Import token usage from Codex CLI session logs.").option("--all", "import every repo, not just this one").option("--branch <branch>", "only this branch").option("--since <iso>", "only calls at or after this time").option("--dir <path>", "Codex sessions dir (default ~/.codex/sessions)").action(async (opts) => {
+  const root = repoRoot();
+  const pricing = Pricing.load(root);
+  const seen = knownRequestIds(ledgerPath(root));
+  const entries = await importCodex({
+    pricing,
+    repoRoot: root,
+    all: Boolean(opts.all),
+    branch: opts.branch,
+    sinceTs: opts.since,
+    dir: opts.dir,
+    seen
+  });
+  writeEntries(root, entries, "codex");
 });
 importCmd.command("generic <file>").description("Import a JSON/JSONL file of usage rows (OpenAI- or Anthropic-shaped).").option("--source <name>", "label the source", "generic").action((file, opts) => {
   const root = repoRoot();

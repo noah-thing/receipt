@@ -11,6 +11,7 @@ import { buildReceipt, selectEntries } from "./receipt.js";
 import { renderMarkdown, renderText } from "./render.js";
 import { resolveContext, rangeFor } from "./context.js";
 import { importClaudeCode } from "./importers/claude-code.js";
+import { importCodex } from "./importers/codex.js";
 import { importGeneric } from "./importers/generic.js";
 import { startProxy } from "./proxy.js";
 import { buildDashboardData, serveDashboard } from "./dashboard.js";
@@ -145,6 +146,29 @@ importCmd
       seen,
     });
     writeEntries(root, entries, "claude-code");
+  });
+
+importCmd
+  .command("codex")
+  .description("Import token usage from Codex CLI session logs.")
+  .option("--all", "import every repo, not just this one")
+  .option("--branch <branch>", "only this branch")
+  .option("--since <iso>", "only calls at or after this time")
+  .option("--dir <path>", "Codex sessions dir (default ~/.codex/sessions)")
+  .action(async (opts) => {
+    const root = repoRoot();
+    const pricing = Pricing.load(root);
+    const seen = knownRequestIds(ledgerPath(root));
+    const entries = await importCodex({
+      pricing,
+      repoRoot: root,
+      all: Boolean(opts.all),
+      branch: opts.branch,
+      sinceTs: opts.since,
+      dir: opts.dir,
+      seen,
+    });
+    writeEntries(root, entries, "codex");
   });
 
 importCmd
