@@ -9,10 +9,10 @@
 interface LedgerEntry {
     /** ISO-8601 timestamp of the call. */
     ts: string;
-    /** Provider model id, e.g. "claude-opus-4-8" or "gpt-4o". */
+    /** Provider model id, e.g. "claude-opus-5-5" or "gpt-6-sol". */
     model: string;
     /** Provider family, derived from the model id. */
-    provider: "anthropic" | "openai" | "google" | "unknown";
+    provider: "anthropic" | "openai" | "google" | "xai" | "unknown";
     /** Plain (uncached) input tokens. */
     inputTokens: number;
     /** Generated output tokens. */
@@ -33,7 +33,7 @@ interface LedgerEntry {
         sha?: string;
         repo?: string;
     };
-    /** What produced the entry: "proxy", "claude-code", "openai", "generic", "manual". */
+    /** What produced the entry: "proxy", "claude-code", "codex", "openai", "generic", "manual". */
     source: string;
     /** Optional free-text label for the run or task. */
     label?: string;

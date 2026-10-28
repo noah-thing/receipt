@@ -119,8 +119,9 @@ export function providerOf(model: string): LedgerEntry["provider"] {
   const m = model.toLowerCase();
   if (m.includes("claude") || m === "opus" || m === "sonnet" || m === "haiku" || m.includes("fable"))
     return "anthropic";
-  if (m.startsWith("gpt") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4"))
+  if (m.startsWith("gpt") || m.startsWith("codex") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4"))
     return "openai";
   if (m.includes("gemini")) return "google";
+  if (m.startsWith("grok")) return "xai";
   return "unknown";
 }

@@ -13,6 +13,7 @@
         --anthropic: #c0633f;
         --openai: #2f7d6b;
         --google: #3f5fa6;
+        --xai: #6a5a8c;
         --unknown: #9a948a;
         --over: #b23b3b;
       }
@@ -100,7 +101,7 @@
         currency: "USD", totals: { cost: 0, tokens: 0, calls: 0 },
         daily: [], byModel: [], byBranch: [], byProvider: [], topCalls: [], generatedAt: new Date().toISOString(),
       };
-      const PROVIDER = { anthropic: "var(--anthropic)", openai: "var(--openai)", google: "var(--google)", unknown: "var(--unknown)" };
+      const PROVIDER = { anthropic: "var(--anthropic)", openai: "var(--openai)", google: "var(--google)", xai: "var(--xai)", unknown: "var(--unknown)" };
 
       const money = (n) => {
         const s = "$";

@@ -326,7 +326,7 @@ export interface WhatIf {
 export function whatIf(receipt: Receipt, pricing: Pricing, cheaper?: string): WhatIf | undefined {
   const top = receipt.byModel.find((m) => m.priced && m.costUsd > 0);
   if (!top) return undefined;
-  cheaper = cheaper ?? pricing.cheapestModel(top.provider) ?? "claude-haiku-4-5";
+  cheaper = cheaper ?? pricing.cheapestModel(top.provider) ?? "claude-haiku-5-5";
   if (top.model === cheaper) return undefined;
   const readTokens = { inputTokens: top.inputTokens, cacheReadTokens: top.cacheReadTokens };
   const base = {

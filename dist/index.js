@@ -105,51 +105,117 @@ import { join } from "path";
 // src/prices.json
 var prices_default = {
   _meta: {
-    updated: "2026-06",
+    updated: "2026-10",
     currency: "USD",
-    note: "Best-effort public list prices in USD per 1,000,000 tokens. Prices change and your negotiated rate may differ. Override any of these by dropping a .receipt/prices.json in your repo; it is merged over these defaults. Unverified entries are marked verified:false and flagged on the receipt."
+    note: "Public list prices in USD per 1,000,000 tokens, checked 2026-10-28 against each provider's pricing page. Models with prompt-size tiers (Haiku 5.5 over 100k, Gemini Pro and Grok over 200k, GPT over 272k) are priced at the standard lower tier. Prices change and your negotiated rate may differ. Override any of these by dropping a .receipt/prices.json in your repo; it is merged over these defaults. Entries marked verified:false could not be confirmed against a current price page and are flagged on the receipt."
   },
   models: {
-    "claude-opus-4-8": { input: 15, output: 75, tools: { web_search_requests: 0.01 } },
-    "claude-opus-4-7": { input: 15, output: 75, tools: { web_search_requests: 0.01 } },
+    "claude-fable-5-1": { input: 10, output: 50, cacheRead: 0.25, tools: { web_search_requests: 0.01 } },
+    "claude-fable-5": { input: 10, output: 50, cacheRead: 1, tools: { web_search_requests: 0.01 } },
+    "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2, tools: { web_search_requests: 0.01 } },
+    "claude-opus-5": { input: 5, output: 25, tools: { web_search_requests: 0.01 } },
+    "claude-opus-4-8": { input: 5, output: 25, tools: { web_search_requests: 0.01 } },
+    "claude-opus-4-7": { input: 5, output: 25, tools: { web_search_requests: 0.01 } },
+    "claude-opus-4-6": { input: 5, output: 25, tools: { web_search_requests: 0.01 } },
+    "claude-opus-4-5": { input: 5, output: 25, tools: { web_search_requests: 0.01 } },
     "claude-opus-4-1": { input: 15, output: 75 },
     "claude-opus-4": { input: 15, output: 75 },
+    "claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.1, tools: { web_search_requests: 0.01 } },
+    "claude-sonnet-5": { input: 2, output: 10, cacheRead: 0.2, tools: { web_search_requests: 0.01 } },
     "claude-sonnet-4-6": { input: 3, output: 15, tools: { web_search_requests: 0.01 } },
     "claude-sonnet-4-5": { input: 3, output: 15 },
     "claude-sonnet-4": { input: 3, output: 15 },
+    "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01 },
     "claude-haiku-4-5": { input: 1, output: 5 },
-    "claude-3-7-sonnet": { input: 3, output: 15 },
-    "claude-3-5-sonnet": { input: 3, output: 15 },
     "claude-3-5-haiku": { input: 0.8, output: 4 },
-    "claude-3-opus": { input: 15, output: 75 },
-    "claude-3-haiku": { input: 0.25, output: 1.25 },
-    "claude-fable-5": { input: 3, output: 15, verified: false },
-    "gpt-4o": { input: 2.5, output: 10, cacheRead: 1.25 },
-    "gpt-4o-mini": { input: 0.15, output: 0.6, cacheRead: 0.075 },
+    "claude-3-7-sonnet": { input: 3, output: 15, verified: false },
+    "claude-3-5-sonnet": { input: 3, output: 15, verified: false },
+    "claude-3-opus": { input: 15, output: 75, verified: false },
+    "claude-3-haiku": { input: 0.25, output: 1.25, verified: false },
+    "gpt-6-astra": { input: 10, output: 50, cacheRead: 1 },
+    "gpt-6.1-sol": { input: 2, output: 10, cacheRead: 0.1 },
+    "gpt-6.1-terra": { input: 1, output: 5, cacheRead: 0.05 },
+    "gpt-6-sol": { input: 2, output: 10, cacheRead: 0.2 },
+    "gpt-6-luna": { input: 0.1, output: 0.5, cacheRead: 0.01 },
+    "gpt-5.6-sol": { input: 4, output: 20, cacheRead: 0.4 },
+    "gpt-5.6-terra": { input: 2, output: 12, cacheRead: 0.2 },
+    "gpt-5.6-luna": { input: 0.2, output: 1.2, cacheRead: 0.02 },
+    "gpt-5.5": { input: 5, output: 30, cacheRead: 0.5 },
+    "gpt-5.5-pro": { input: 30, output: 180, cacheRead: 30 },
+    "gpt-5.4": { input: 2.5, output: 15, cacheRead: 0.25 },
+    "gpt-5.4-pro": { input: 30, output: 180, cacheRead: 30 },
+    "gpt-5.4-mini": { input: 0.75, output: 4.5, cacheRead: 0.075 },
+    "gpt-5.4-nano": { input: 0.2, output: 1.25, cacheRead: 0.02 },
+    "gpt-5.3-codex": { input: 1.75, output: 14, cacheRead: 0.175 },
+    "gpt-5.2": { input: 1.75, output: 14, cacheRead: 0.175 },
+    "gpt-5.2-pro": { input: 21, output: 168, cacheRead: 21 },
+    "gpt-5.1": { input: 1.25, output: 10, cacheRead: 0.125 },
+    "gpt-5": { input: 1.25, output: 10, cacheRead: 0.125 },
+    "gpt-5-mini": { input: 0.25, output: 2, cacheRead: 0.025 },
+    "gpt-5-nano": { input: 0.05, output: 0.4, cacheRead: 5e-3 },
+    "gpt-5-pro": { input: 15, output: 120, cacheRead: 15 },
     "gpt-4.1": { input: 2, output: 8, cacheRead: 0.5 },
     "gpt-4.1-mini": { input: 0.4, output: 1.6, cacheRead: 0.1 },
     "gpt-4.1-nano": { input: 0.1, output: 0.4, cacheRead: 0.025 },
-    o3: { input: 2, output: 8, cacheRead: 0.5, verified: false },
-    "o4-mini": { input: 1.1, output: 4.4, cacheRead: 0.275, verified: false },
-    "gpt-4-turbo": { input: 10, output: 30 },
-    "gpt-3.5-turbo": { input: 0.5, output: 1.5 },
-    "gemini-2.5-pro": { input: 1.25, output: 10, verified: false },
-    "gemini-2.5-flash": { input: 0.3, output: 2.5, verified: false },
+    "gpt-4o": { input: 2.5, output: 10, cacheRead: 1.25 },
+    "gpt-4o-mini": { input: 0.15, output: 0.6, cacheRead: 0.075 },
+    o3: { input: 2, output: 8, cacheRead: 0.5 },
+    "o4-mini": { input: 1.1, output: 4.4, cacheRead: 0.275 },
+    "gpt-4-turbo": { input: 10, output: 30, cacheRead: 10 },
+    "gpt-3.5-turbo": { input: 0.5, output: 1.5, cacheRead: 0.5 },
+    "gemini-4-argon": { input: 2, output: 10, cacheRead: 0.1 },
+    "gemini-3.8-flash": { input: 0.75, output: 3.75, cacheRead: 0.075 },
+    "gemini-3.6-flash": { input: 0.75, output: 3.75, cacheRead: 0.075 },
+    "gemini-3.5-flash-lite": { input: 0.3, output: 2.5, cacheRead: 0.03 },
+    "gemini-3.1-flash-lite": { input: 0.25, output: 1.5, cacheRead: 0.025 },
+    "gemini-3.1-pro-preview": { input: 2, output: 12, cacheRead: 0.2 },
+    "gemini-3-flash-preview": { input: 0.5, output: 3, cacheRead: 0.05 },
+    "gemini-2.5-pro": { input: 1.25, output: 10, cacheRead: 0.125 },
+    "gemini-2.5-flash": { input: 0.3, output: 2.5, cacheRead: 0.03 },
+    "gemini-2.5-flash-lite": { input: 0.1, output: 0.4, cacheRead: 0.01 },
     "gemini-2.0-flash": { input: 0.1, output: 0.4, verified: false },
-    haiku: { input: 1, output: 5 },
-    sonnet: { input: 3, output: 15 },
-    opus: { input: 15, output: 75 }
+    "grok-4.7": { input: 2, output: 6, cacheRead: 0.5 },
+    "grok-4.6": { input: 2, output: 6, cacheRead: 0.5 },
+    "grok-4.5": { input: 2, output: 6, cacheRead: 0.3 },
+    "grok-4.3": { input: 1.25, output: 2.5, cacheRead: 0.2 },
+    "grok-4.20-0309-reasoning": { input: 1.25, output: 2.5, cacheRead: 0.2 },
+    "grok-4.20-0309-non-reasoning": { input: 1.25, output: 2.5, cacheRead: 0.2 },
+    "grok-4.20-multi-agent-0309": { input: 1.25, output: 2.5, cacheRead: 0.2 },
+    "grok-build-0.1": { input: 1, output: 2, cacheRead: 0.2 },
+    haiku: { input: 0.1, output: 0.5, cacheRead: 0.01 },
+    sonnet: { input: 2, output: 10, cacheRead: 0.1 },
+    opus: { input: 4, output: 20, cacheRead: 0.2 }
   },
   prefixes: [
-    { match: "claude-opus", model: "claude-opus-4-8" },
-    { match: "claude-sonnet", model: "claude-sonnet-4-6" },
-    { match: "claude-haiku", model: "claude-haiku-4-5" },
+    { match: "claude-opus-5-5", model: "claude-opus-5-5" },
+    { match: "claude-opus-5", model: "claude-opus-5" },
+    { match: "claude-opus-4-8", model: "claude-opus-4-8" },
+    { match: "claude-opus-4-7", model: "claude-opus-4-7" },
+    { match: "claude-opus-4-6", model: "claude-opus-4-6" },
+    { match: "claude-opus-4-5", model: "claude-opus-4-5" },
+    { match: "claude-opus-4-1", model: "claude-opus-4-1" },
+    { match: "claude-opus-4", model: "claude-opus-4" },
+    { match: "claude-opus", model: "claude-opus-5-5" },
+    { match: "claude-sonnet-5-5", model: "claude-sonnet-5-5" },
+    { match: "claude-sonnet-5", model: "claude-sonnet-5" },
+    { match: "claude-sonnet-4-6", model: "claude-sonnet-4-6" },
+    { match: "claude-sonnet-4-5", model: "claude-sonnet-4-5" },
+    { match: "claude-sonnet-4", model: "claude-sonnet-4" },
+    { match: "claude-sonnet", model: "claude-sonnet-5-5" },
+    { match: "claude-haiku-5-5", model: "claude-haiku-5-5" },
+    { match: "claude-haiku-4-5", model: "claude-haiku-4-5" },
+    { match: "claude-haiku", model: "claude-haiku-5-5" },
+    { match: "claude-fable-5-1", model: "claude-fable-5-1" },
+    { match: "claude-fable-5", model: "claude-fable-5" },
+    { match: "claude-fable", model: "claude-fable-5-1" },
     { match: "claude-3-5-sonnet", model: "claude-3-5-sonnet" },
     { match: "gpt-4o-mini", model: "gpt-4o-mini" },
     { match: "gpt-4o", model: "gpt-4o" },
+    { match: "gpt-4.1-nano", model: "gpt-4.1-nano" },
     { match: "gpt-4.1-mini", model: "gpt-4.1-mini" },
     { match: "gpt-4.1", model: "gpt-4.1" },
     { match: "gemini-2.5-pro", model: "gemini-2.5-pro" },
+    { match: "gemini-2.5-flash-lite", model: "gemini-2.5-flash-lite" },
     { match: "gemini-2.5-flash", model: "gemini-2.5-flash" }
   ]
 };
@@ -257,9 +323,10 @@ function providerOf(model) {
   const m = model.toLowerCase();
   if (m.includes("claude") || m === "opus" || m === "sonnet" || m === "haiku" || m.includes("fable"))
     return "anthropic";
-  if (m.startsWith("gpt") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4"))
+  if (m.startsWith("gpt") || m.startsWith("codex") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4"))
     return "openai";
   if (m.includes("gemini")) return "google";
+  if (m.startsWith("grok")) return "xai";
   return "unknown";
 }
 
@@ -431,6 +498,7 @@ var PROVIDER_BADGE = {
   anthropic: "\u25C6",
   openai: "\u25CB",
   google: "\u25B3",
+  xai: "\u25A1",
   unknown: "\xB7"
 };
 function renderMarkdown(receipt, opts = {}) {
@@ -905,7 +973,7 @@ function whereItWent(receipt) {
 function whatIf(receipt, pricing, cheaper) {
   const top = receipt.byModel.find((m) => m.priced && m.costUsd > 0);
   if (!top) return void 0;
-  cheaper = cheaper ?? pricing.cheapestModel(top.provider) ?? "claude-haiku-4-5";
+  cheaper = cheaper ?? pricing.cheapestModel(top.provider) ?? "claude-haiku-5-5";
   if (top.model === cheaper) return void 0;
   const readTokens = { inputTokens: top.inputTokens, cacheReadTokens: top.cacheReadTokens };
   const base = {

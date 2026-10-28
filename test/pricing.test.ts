@@ -94,6 +94,38 @@ describe("Pricing", () => {
     expect(def.priceFor("claude-opus-4-8")).toBeDefined();
     expect(def.currency()).toBe("USD");
   });
+
+  it("prices the current model families", () => {
+    const def = Pricing.load();
+    expect(def.priceFor("claude-opus-5-5")).toMatchObject({ input: 4, output: 20, cacheRead: 0.2 });
+    expect(def.priceFor("claude-sonnet-5-5")).toMatchObject({ input: 2, output: 10 });
+    expect(def.priceFor("claude-haiku-5-5")).toMatchObject({ input: 0.1, output: 0.5 });
+    expect(def.priceFor("claude-fable-5-1")).toMatchObject({ input: 10, output: 50, cacheRead: 0.25 });
+    expect(def.priceFor("gpt-6-sol")).toMatchObject({ input: 2, output: 10, cacheRead: 0.2 });
+    expect(def.priceFor("gemini-4-argon")).toMatchObject({ input: 2, output: 10 });
+    expect(def.priceFor("grok-4.7")).toMatchObject({ input: 2, output: 6, cacheRead: 0.5 });
+  });
+
+  it("resolves dated ids to the right version, not a neighbour", () => {
+    const def = Pricing.load();
+    expect(def.priceFor("claude-opus-5-5-20261001")?.input).toBe(4);
+    expect(def.priceFor("claude-opus-4-5-20251101")?.input).toBe(5);
+    expect(def.priceFor("claude-opus-4-1-20250805")?.input).toBe(15);
+    expect(def.priceFor("claude-sonnet-5-5-20261001")?.input).toBe(2);
+    expect(def.priceFor("gemini-2.5-flash-lite-preview")?.output).toBe(0.4);
+  });
+
+  it("leaves unknown models unpriced", () => {
+    const def = Pricing.load();
+    expect(def.priceFor("grok-9")).toBeUndefined();
+    expect(def.priceFor("gpt-9")).toBeUndefined();
+  });
+
+  it("every price card has a verified flag only when it is false", () => {
+    const def = Pricing.load();
+    expect(def.isVerified("claude-3-opus")).toBe(false);
+    expect(def.isVerified("o3")).toBe(true);
+  });
 });
 
 describe("providerOf", () => {
@@ -103,6 +135,7 @@ describe("providerOf", () => {
     expect(providerOf("gpt-4o")).toBe("openai");
     expect(providerOf("o3-mini")).toBe("openai");
     expect(providerOf("gemini-2.5-pro")).toBe("google");
+    expect(providerOf("grok-4.7")).toBe("xai");
     expect(providerOf("mystery-7b")).toBe("unknown");
   });
 });

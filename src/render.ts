@@ -18,6 +18,7 @@ const PROVIDER_BADGE: Record<string, string> = {
   anthropic: "◆",
   openai: "○",
   google: "△",
+  xai: "□",
   unknown: "·",
 };
 
