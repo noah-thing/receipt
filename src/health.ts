@@ -1,22 +1,22 @@
 /**
- * Session health — keeping the agent sharp, not just cheap.
+ * Session health: keeping the agent sharp, not just cheap.
  *
  * Long sessions get worse before they hit any hard limit: context rot, lost-in-
  * the-middle, instruction drift, looping, and lossy auto-compaction all set in
- * while the window still has room. The research is consistent — effective
- * context is only ~50–65% of the advertised window (RULER), recall sags past
+ * while the window still has room. The research is consistent: effective
+ * context is only ~50 to 65% of the advertised window (RULER), recall sags past
  * ~50% fill (lost-in-the-middle), and multi-turn quality drops ~39% over a long
- * conversation. Anthropic's own advice is to compact *proactively at 50–60%*,
+ * conversation. Anthropic's own advice is to compact *proactively at 50 to 60%*,
  * before the summary itself goes lossy.
  *
  * This module reads the same ledger as everything else and estimates, per
- * session, how close it is to that quality cliff — then tells you the right
+ * session, how close it is to that quality cliff and then tells you the right
  * move (/compact, /clear, a fresh session, /rewind) BEFORE the output degrades.
  * It never advises doing less work; it protects the work's quality.
  *
  * The key trick: for any call, input + cache-read + cache-write tokens ≈ the
  * size of the prompt sent that turn ≈ how full the context was. No internals
- * needed — the ledger already has it.
+ * needed; the ledger already has it.
  */
 import type { LedgerEntry } from "./types.js";
 import type { Pricing } from "./pricing.js";
@@ -187,7 +187,7 @@ export function analyzeSession(session: LedgerEntry[], now: number): SessionHeal
   const contextWindow = contextWindowFor(contextModel);
   const fill = contextWindow > 0 ? contextTokens / contextWindow : 0;
 
-  // Peak prompt size anywhere in the session — a session can spike to 95% and
+  // Peak prompt size anywhere in the session; a session can spike to 95% and
   // then auto-compact back to 20%, so the end-state fill alone understates risk.
   let peakContextTokens = 0;
   for (const e of session) peakContextTokens = Math.max(peakContextTokens, promptTokens(e));
@@ -221,7 +221,7 @@ export function analyzeSession(session: LedgerEntry[], now: number): SessionHeal
 
   const signals: HealthSignal[] = [];
 
-  // 1. Context fill — % of window AND absolute (big windows degrade by absolute size).
+  // Context fill: % of window AND absolute (big windows degrade by absolute size).
   const fillSev: Severity = fill >= 0.9 ? "high" : fill >= 0.8 ? "high" : fill >= 0.6 ? "watch" : "ok";
   const absSev: Severity = contextTokens >= 400_000 ? "high" : contextTokens >= 200_000 ? "watch" : "ok";
   const ctxSev = RANK[fillSev] >= RANK[absSev] ? fillSev : absSev;
@@ -231,16 +231,16 @@ export function analyzeSession(session: LedgerEntry[], now: number): SessionHeal
       severity: ctxSev,
       detail:
         `Context is ~${Math.round(fill * 100)}% full (${Math.round(contextTokens / 1000)}k of ` +
-        `${Math.round(contextWindow / 1000)}k). Usable context is only ~50–65% of the window, so quality ` +
+        `${Math.round(contextWindow / 1000)}k). Usable context is only ~50 to 65% of the window, so quality ` +
         `sags before it's "full."`,
       action:
         ctxSev === "high"
-          ? "/compact now (or start a fresh session) — past here, even the summary gets lossy"
-          : "good moment to /compact — Anthropic suggests it around 50–60%, before quality dips",
+          ? "/compact now (or start a fresh session): past here even the summary gets lossy"
+          : "good moment to /compact, Anthropic suggests it around 50 to 60%, before quality dips",
     });
   }
 
-  // 2. Session length — multi-turn drift and accumulation slowdown.
+  // Session length: multi-turn drift and accumulation slowdown.
   const turnSev: Severity = calls >= 25 ? "high" : calls >= 12 ? "watch" : "ok";
   if (turnSev !== "ok") {
     signals.push({
@@ -259,20 +259,20 @@ export function analyzeSession(session: LedgerEntry[], now: number): SessionHeal
     });
   }
 
-  // 3. Cache health — low reuse = context churning / cache-invalidation cascade.
+  // Cache health: low reuse = context churning / cache-invalidation cascade.
   if (cacheRead + cacheWrite > 50_000) {
     const cacheSev: Severity = cacheReadShare < 0.2 ? "high" : cacheReadShare < 0.5 ? "watch" : "ok";
     if (cacheSev !== "ok") {
       signals.push({
         key: "cache-health",
         severity: cacheSev,
-        detail: `Only ${Math.round(cacheReadShare * 100)}% of cache activity is reuse — the context keeps changing, so cache (and coherence) reset each turn.`,
+        detail: `Only ${Math.round(cacheReadShare * 100)}% of cache activity is reuse. The context keeps changing, so cache (and coherence) reset each turn.`,
         action: "keep the stable parts (system prompt, key files) first and unchanged; let volatile context come last.",
       });
     }
   }
 
-  // 4. Compaction cascade — each summary loses detail.
+  // Compaction cascade: each summary loses detail.
   if (compactions >= 2) {
     signals.push({
       key: "compaction-cascade",
@@ -282,22 +282,22 @@ export function analyzeSession(session: LedgerEntry[], now: number): SessionHeal
     });
   }
 
-  // 5. Looping — retries re-send everything and produce nothing new.
+  // Looping: retries re-send everything and produce nothing new.
   if (recentRetries >= 3) {
     signals.push({
       key: "looping",
       severity: "watch",
-      detail: `${recentRetries} retries in the last few turns — a sign the agent is stuck repeating an approach.`,
+      detail: `${recentRetries} retries in the last few turns: a sign the agent is stuck repeating an approach.`,
       action: "/rewind to before the loop and change approach, or restate the goal with an explicit success check.",
     });
   }
 
-  // 6. Output shrinkage — responses getting shorter can signal drift/lost focus.
+  // Output shrinkage: responses getting shorter can signal drift/lost focus.
   if (outputDecline >= 0.4) {
     signals.push({
       key: "output-shrink",
       severity: "watch",
-      detail: `Responses are ~${Math.round(outputDecline * 100)}% shorter than earlier in the session — often a sign focus is slipping.`,
+      detail: `Responses are ~${Math.round(outputDecline * 100)}% shorter than earlier in the session, often a sign focus is slipping.`,
       action: "re-state the task and constraints in a fresh message, or /compact to clear the bloat.",
     });
   }
@@ -401,7 +401,7 @@ export interface PrHealth {
  * Aggregate session health across the entries that make up a pull request.
  *
  * The live `sessionHealth` asks "is my session degrading right now?"; this asks
- * the reviewer's question — "was this work produced under conditions that
+ * the reviewer's question: "was this work produced under conditions that
  * correlate with drift?" It proves *conditions*, never that the code is wrong.
  */
 export function prHealth(
@@ -499,11 +499,11 @@ export function sessionHistory(entries: LedgerEntry[], gapMs = THIRTY_MIN_MS): S
 
 export interface ContextTax {
   totalTokens: number;
-  /** Prior context carried forward each turn — cache reads. */
+  /** Prior context carried forward each turn: cache reads. */
   resentTokens: number;
-  /** Genuinely new work — fresh input + generated output. */
+  /** Genuinely new work: fresh input + generated output. */
   newTokens: number;
-  /** Context being cached for the first time — cache writes. */
+  /** Context being cached for the first time: cache writes. */
   cacheWriteTokens: number;
   /** resentTokens / totalTokens. */
   resentShare: number;
@@ -511,13 +511,13 @@ export interface ContextTax {
   resentCostUsd: number | null;
   /** Dollar cost of the genuinely-new work. */
   newCostUsd: number | null;
-  /** resentCostUsd / (resentCostUsd + newCostUsd) — far smaller than the token share, thanks to caching. */
+  /** resentCostUsd / (resentCostUsd + newCostUsd): far smaller than the token share, thanks to caching. */
   resentCostShare: number | null;
 }
 
 /**
  * Quantify the quadratic re-send tax. As a session grows, most of each turn's
- * tokens are prior context carried forward (cache reads), not new work — which
+ * tokens are prior context carried forward (cache reads), not new work, which
  * is why a long session both costs more *and* gets duller. Caching keeps the
  * dollar tax small; showing both numbers keeps the story honest, not alarmist:
  * a fresh session is cheaper *and* sharper.
@@ -592,7 +592,7 @@ function median(xs: number[]): number | undefined {
 
 /**
  * Learn the user's own pattern: "you tend to degrade around turn ~N / ~Xk
- * tokens." Onset mirrors the live thresholds — fill ≥ 0.6, or turn ≥ 12 — so the
+ * tokens." Onset mirrors the live thresholds: fill ≥ 0.6 or turn ≥ 12, so the
  * profile and the live warning agree.
  */
 export function degradationProfile(entries: LedgerEntry[], gapMs = THIRTY_MIN_MS): DegradationProfile {

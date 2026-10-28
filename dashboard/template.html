@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Receipt — AI spend</title>
+    <title>Receipt: AI spend</title>
     <style>
       :root {
         --paper: #faf9f6;
@@ -63,7 +63,7 @@
   <body>
     <div class="wrap">
       <header>
-        <div class="mark">🧾 Receipt</div>
+        <div class="mark">Receipt</div>
         <h1 id="total">$0.00</h1>
         <div class="sub" id="range">no usage recorded yet</div>
       </header>
@@ -214,7 +214,7 @@
           tr.innerHTML =
             "<td class='mono'>" + c.ts.slice(0, 16).replace("T", " ") + "</td>" +
             "<td class='mono'>" + c.model + "</td>" +
-            "<td class='mono'>" + (c.branch || "—") + "</td>" +
+            "<td class='mono'>" + (c.branch || "none") + "</td>" +
             "<td class='num'>" + tokens(c.tokens) + "</td>" +
             "<td class='num'>" + money(c.cost) + "</td>";
           tb.appendChild(tr);

@@ -1,5 +1,5 @@
 /**
- * Usage awareness — the "% of you" engine.
+ * Usage awareness: the "% of you" engine.
  *
  * Receipt's ledger already knows what every call cost in tokens and dollars.
  * This module turns those raw numbers into the things that actually change how
@@ -24,8 +24,8 @@ export const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
 export const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * Rough per-window token budgets by plan. These are ESTIMATES — Anthropic does
- * not publish exact figures — and exist only so the feature works before you
+ * Rough per-window token budgets by plan. These are ESTIMATES (Anthropic does
+ * not publish exact figures) and exist only so the feature works before you
  * calibrate. Run the proxy (which reads real rate-limit headers) or
  * `receipt calibrate` to replace them with your true ceiling.
  */
@@ -50,7 +50,6 @@ function ms(ts: string): number {
   return new Date(ts).getTime();
 }
 
-// ── windows ──────────────────────────────────────────────────────────────────
 
 export interface WindowState {
   /** Tokens used inside the current window. */
@@ -97,7 +96,6 @@ export function windowState(
   };
 }
 
-// ── tasks, sizes, personal stats ─────────────────────────────────────────────
 
 export interface TaskRollup {
   key: string;
@@ -189,7 +187,6 @@ export function personalStats(entries: LedgerEntry[]): PersonalStats {
   };
 }
 
-// ── pace ─────────────────────────────────────────────────────────────────────
 
 export interface PaceState {
   /** Tokens used in the last hour. */
@@ -231,7 +228,6 @@ export function paceState(
   return { lastHour, sustainablePerHour, ratio, lastDay, runwayDays, runsDryAt };
 }
 
-// ── capacity ("what you could still do") ─────────────────────────────────────
 
 export interface CapacityItem {
   label: string;
@@ -264,7 +260,6 @@ export function inWorkUnits(tokensUsed: number, sizes: TaskSizes): string {
   return `${Math.max(1, Math.round(tokensUsed / sizes.quick))} quick edits`;
 }
 
-// ── efficiency grade ─────────────────────────────────────────────────────────
 
 export interface EfficiencyGrade {
   score: number;
@@ -274,8 +269,8 @@ export interface EfficiencyGrade {
 }
 
 /**
- * A heuristic 0–100 grade for how tight a task was. Rewards cache reuse,
- * punishes retries. Not a precise measure — a nudge, not a verdict.
+ * A heuristic 0 to 100 grade for how tight a task was. Rewards cache reuse,
+ * punishes retries. Not a precise measure: a nudge, not a verdict.
  */
 export function efficiencyGrade(receipt: Receipt): EfficiencyGrade {
   const inputAll = receipt.byModel.reduce((s, m) => s + m.inputTokens + m.cacheReadTokens, 0);
@@ -290,7 +285,6 @@ export function efficiencyGrade(receipt: Receipt): EfficiencyGrade {
   return { score, letter, cacheHitRate, retryRate };
 }
 
-// ── where the tokens went ────────────────────────────────────────────────────
 
 export interface Composition {
   output: number;
@@ -314,7 +308,6 @@ export function whereItWent(receipt: Receipt): Composition {
   };
 }
 
-// ── what-if (model mix lever) ────────────────────────────────────────────────
 
 export interface WhatIf {
   fromModel: string;
@@ -356,7 +349,6 @@ export function whatIf(receipt: Receipt, pricing: Pricing, cheaper?: string): Wh
   };
 }
 
-// ── records & rankings ───────────────────────────────────────────────────────
 
 export interface Records {
   priciest?: TaskRollup;
@@ -389,7 +381,6 @@ export function records(entries: LedgerEntry[]): Records {
   };
 }
 
-// ── fun equivalences ─────────────────────────────────────────────────────────
 
 /** Playful but honest comparisons. Anchored to real token counts. */
 export function funEquivalences(tokensUsed: number, repoTokens?: number): string[] {
@@ -410,7 +401,6 @@ export function funEquivalences(tokensUsed: number, repoTokens?: number): string
   return out;
 }
 
-// ── voice ────────────────────────────────────────────────────────────────────
 
 /** A dry one-liner sized to how close to the wall you are. */
 export function voiceLine(frac: number | undefined): string | undefined {
@@ -422,7 +412,6 @@ export function voiceLine(frac: number | undefined): string | undefined {
   return "Barely touched it.";
 }
 
-// ── the assembled current-state snapshot ─────────────────────────────────────
 
 export interface Fuel {
   budget?: PlanBudget;
@@ -464,7 +453,6 @@ export function taskImpact(taskTokens: number, budget: PlanBudget | undefined) {
   };
 }
 
-// ── budget resolution + IO (calibration, observed limits, repo size) ──────────
 
 function limitsPath(root: string): string {
   return join(root, ".receipt", "limits.json");

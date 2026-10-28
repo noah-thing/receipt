@@ -1,5 +1,5 @@
 name: "AI Cost Receipt"
-description: "Itemized AI cost comment (tokens and dollars) on every pull request. Works with Claude Code, Cursor, Copilot, Aider."
+description: "Itemized AI cost comment (tokens and dollars) on every pull request."
 author: "Noah"
 branding:
   icon: "dollar-sign"

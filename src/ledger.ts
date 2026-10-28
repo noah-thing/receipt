@@ -11,14 +11,12 @@ export function ledgerPath(repoRoot: string): string {
   return process.env.RECEIPT_LEDGER || join(repoRoot, ".receipt", "ledger.jsonl");
 }
 
-/** Append one entry. Creates `.receipt/` on first write. */
 export function append(repoRoot: string, entry: LedgerEntry): void {
   const path = ledgerPath(repoRoot);
   mkdirSync(dirname(path), { recursive: true });
   appendFileSync(path, JSON.stringify(entry) + "\n", "utf8");
 }
 
-/** Append many entries in one write. */
 export function appendMany(repoRoot: string, entries: LedgerEntry[]): void {
   if (entries.length === 0) return;
   const path = ledgerPath(repoRoot);

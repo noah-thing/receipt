@@ -1,5 +1,5 @@
 /**
- * Receipt — programmatic API.
+ * Receipt: programmatic API.
  *
  * The CLI is the product; these exports let you build on the same pieces: the
  * price book, the append-only ledger, the receipt aggregation, and the

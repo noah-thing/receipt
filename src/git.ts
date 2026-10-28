@@ -43,7 +43,7 @@ export function repoSlug(cwd = process.cwd()): string | undefined {
 }
 
 /**
- * SHAs reachable from `branch` but not from `base` — i.e. the commits this
+ * SHAs reachable from `branch` but not from `base`, i.e. the commits this
  * branch adds on top of the base. Used to attribute ledger entries to a PR.
  */
 export function commitsInRange(base: string, branch: string, cwd = process.cwd()): string[] {

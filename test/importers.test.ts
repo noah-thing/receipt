@@ -29,7 +29,7 @@ describe("importClaudeCode", () => {
           },
         },
       }),
-      // duplicate request id — should be ignored
+      // duplicate request id: should be ignored
       JSON.stringify({
         type: "assistant",
         timestamp: "2026-06-29T10:00:01Z",
@@ -37,13 +37,13 @@ describe("importClaudeCode", () => {
         gitBranch: "feature",
         message: { model: "claude-opus-4-8", usage: { input_tokens: 1, output_tokens: 1 } },
       }),
-      // synthetic — should be skipped
+      // synthetic: should be skipped
       JSON.stringify({
         type: "assistant",
         timestamp: "2026-06-29T10:00:02Z",
         message: { model: "<synthetic>", usage: { input_tokens: 9, output_tokens: 9 } },
       }),
-      // a user line — no usage
+      // a user line: no usage
       JSON.stringify({ type: "user", message: { role: "user", content: "hi" } }),
     ];
     writeFileSync(join(dir, "session.jsonl"), lines.join("\n") + "\n");

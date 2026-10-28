@@ -22,7 +22,7 @@ function e(over: Partial<LedgerEntry>): LedgerEntry {
   };
 }
 
-describe("recommend — never tells the agent to do less", () => {
+describe("recommend: never tells the agent to do less", () => {
   it("contains no 'work less / produce less' advice in any branch", () => {
     // A worst-case receipt that would have tempted an 'ask for less output' rule.
     const r = buildReceipt([
@@ -35,7 +35,7 @@ describe("recommend — never tells the agent to do less", () => {
   });
 });
 
-describe("recommend — waste detection", () => {
+describe("recommend: waste detection", () => {
   it("flags low cache reuse as the top, high-severity fix", () => {
     const r = buildReceipt([
       e({ model: "claude-opus-4-8", inputTokens: 800_000, cacheReadTokens: 0, outputTokens: 50_000, costUsd: 20 }),
@@ -79,7 +79,7 @@ describe("recommend — waste detection", () => {
   });
 });
 
-describe("costDrivers — what's costing so much", () => {
+describe("costDrivers: what's costing so much", () => {
   it("names the dominant model and token class", () => {
     const r = buildReceipt([
       e({ model: "claude-opus-4-8", inputTokens: 100_000, cacheReadTokens: 900_000, outputTokens: 50_000, costUsd: 18 }),

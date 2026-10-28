@@ -174,9 +174,7 @@ declare function providerOf(model: string): LedgerEntry["provider"];
  * restored artifact).
  */
 declare function ledgerPath(repoRoot: string): string;
-/** Append one entry. Creates `.receipt/` on first write. */
 declare function append(repoRoot: string, entry: LedgerEntry): void;
-/** Append many entries in one write. */
 declare function appendMany(repoRoot: string, entries: LedgerEntry[]): void;
 /** Read every entry from a ledger file. Skips blank or corrupt lines. */
 declare function readLedger(path: string): LedgerEntry[];
@@ -222,7 +220,7 @@ interface RenderOptions {
 /**
  * The pull-request comment. Markdown, GitHub-flavored, screenshot-friendly.
  * This is the whole product in one artifact, so it has to read cleanly on its
- * own — no prior context, no setup, just the number and what made it.
+ * own: no prior context, no setup, just the number and what made it.
  */
 declare function renderMarkdown(receipt: Receipt, opts?: RenderOptions): string;
 /** A compact terminal version for `receipt show`. No color codes here; the CLI adds them. */
@@ -312,8 +310,8 @@ declare function importClaudeCode(opts: ClaudeImportOptions): Promise<LedgerEntr
 declare const FIVE_HOURS_MS: number;
 declare const WEEK_MS: number;
 /**
- * Rough per-window token budgets by plan. These are ESTIMATES — Anthropic does
- * not publish exact figures — and exist only so the feature works before you
+ * Rough per-window token budgets by plan. These are ESTIMATES (Anthropic does
+ * not publish exact figures) and exist only so the feature works before you
  * calibrate. Run the proxy (which reads real rate-limit headers) or
  * `receipt calibrate` to replace them with your true ceiling.
  */
@@ -399,8 +397,8 @@ interface EfficiencyGrade {
     retryRate: number;
 }
 /**
- * A heuristic 0–100 grade for how tight a task was. Rewards cache reuse,
- * punishes retries. Not a precise measure — a nudge, not a verdict.
+ * A heuristic 0 to 100 grade for how tight a task was. Rewards cache reuse,
+ * punishes retries. Not a precise measure: a nudge, not a verdict.
  */
 declare function efficiencyGrade(receipt: Receipt): EfficiencyGrade;
 interface Composition {
@@ -489,10 +487,10 @@ declare function captureLimits(getHeader: (name: string) => string | null, root:
 declare function estimateRepoTokens(root: string, maxFiles?: number): number;
 
 /**
- * Advice — how to spend fewer tokens without making the work worse.
+ * Advice: how to spend fewer tokens without making the work worse.
  *
  * The guiding rule: never tell the agent to think less, explain less, or produce
- * less. Output and reasoning are the value. This advisor only targets *waste* —
+ * less. Output and reasoning are the value. This advisor only targets *waste*:
  * tokens spent without adding anything: context re-sent instead of cached,
  * retries, cache rebuilt faster than it's reused, premium prices paid for
  * mechanical reads, and cost you can't see because a model is unpriced. It also
@@ -508,12 +506,12 @@ interface Recommendation {
     severity: Severity$1;
     /** Short imperative headline. */
     title: string;
-    /** Why it costs, and how to fix it — without losing quality. */
+    /** Why it costs, and how to fix it, without losing quality. */
     detail: string;
     /** Estimated saving, when computable (e.g. "~$2.80 · 37% of this"). */
     impact?: string;
 }
-/** What's actually driving the cost — the answer to "why is this so much?". */
+/** What's actually driving the cost: the answer to "why is this so much?". */
 declare function costDrivers(receipt: Receipt): string[];
 /**
  * Build the ranked list of waste-cutting recommendations for a receipt.
@@ -524,24 +522,24 @@ declare function recommend(receipt: Receipt, pricing: Pricing): Recommendation[]
 declare function topRecommendation(receipt: Receipt, pricing: Pricing): Recommendation | undefined;
 
 /**
- * Session health — keeping the agent sharp, not just cheap.
+ * Session health: keeping the agent sharp, not just cheap.
  *
  * Long sessions get worse before they hit any hard limit: context rot, lost-in-
  * the-middle, instruction drift, looping, and lossy auto-compaction all set in
- * while the window still has room. The research is consistent — effective
- * context is only ~50–65% of the advertised window (RULER), recall sags past
+ * while the window still has room. The research is consistent: effective
+ * context is only ~50 to 65% of the advertised window (RULER), recall sags past
  * ~50% fill (lost-in-the-middle), and multi-turn quality drops ~39% over a long
- * conversation. Anthropic's own advice is to compact *proactively at 50–60%*,
+ * conversation. Anthropic's own advice is to compact *proactively at 50 to 60%*,
  * before the summary itself goes lossy.
  *
  * This module reads the same ledger as everything else and estimates, per
- * session, how close it is to that quality cliff — then tells you the right
+ * session, how close it is to that quality cliff and then tells you the right
  * move (/compact, /clear, a fresh session, /rewind) BEFORE the output degrades.
  * It never advises doing less work; it protects the work's quality.
  *
  * The key trick: for any call, input + cache-read + cache-write tokens ≈ the
  * size of the prompt sent that turn ≈ how full the context was. No internals
- * needed — the ledger already has it.
+ * needed; the ledger already has it.
  */
 
 declare function contextWindowFor(model: string): number;
@@ -621,7 +619,7 @@ interface PrHealth {
  * Aggregate session health across the entries that make up a pull request.
  *
  * The live `sessionHealth` asks "is my session degrading right now?"; this asks
- * the reviewer's question — "was this work produced under conditions that
+ * the reviewer's question: "was this work produced under conditions that
  * correlate with drift?" It proves *conditions*, never that the code is wrong.
  */
 declare function prHealth(selected: LedgerEntry[], now: number, gapMs?: number): PrHealth | undefined;
@@ -638,11 +636,11 @@ interface SessionSummary {
 declare function sessionHistory(entries: LedgerEntry[], gapMs?: number): SessionSummary[];
 interface ContextTax {
     totalTokens: number;
-    /** Prior context carried forward each turn — cache reads. */
+    /** Prior context carried forward each turn: cache reads. */
     resentTokens: number;
-    /** Genuinely new work — fresh input + generated output. */
+    /** Genuinely new work: fresh input + generated output. */
     newTokens: number;
-    /** Context being cached for the first time — cache writes. */
+    /** Context being cached for the first time: cache writes. */
     cacheWriteTokens: number;
     /** resentTokens / totalTokens. */
     resentShare: number;
@@ -650,12 +648,12 @@ interface ContextTax {
     resentCostUsd: number | null;
     /** Dollar cost of the genuinely-new work. */
     newCostUsd: number | null;
-    /** resentCostUsd / (resentCostUsd + newCostUsd) — far smaller than the token share, thanks to caching. */
+    /** resentCostUsd / (resentCostUsd + newCostUsd): far smaller than the token share, thanks to caching. */
     resentCostShare: number | null;
 }
 /**
  * Quantify the quadratic re-send tax. As a session grows, most of each turn's
- * tokens are prior context carried forward (cache reads), not new work — which
+ * tokens are prior context carried forward (cache reads), not new work, which
  * is why a long session both costs more *and* gets duller. Caching keeps the
  * dollar tax small; showing both numbers keeps the story honest, not alarmist:
  * a fresh session is cheaper *and* sharper.
@@ -674,7 +672,7 @@ interface DegradationProfile {
 }
 /**
  * Learn the user's own pattern: "you tend to degrade around turn ~N / ~Xk
- * tokens." Onset mirrors the live thresholds — fill ≥ 0.6, or turn ≥ 12 — so the
+ * tokens." Onset mirrors the live thresholds: fill ≥ 0.6 or turn ≥ 12, so the
  * profile and the live warning agree.
  */
 declare function degradationProfile(entries: LedgerEntry[], gapMs?: number): DegradationProfile;
@@ -716,7 +714,7 @@ declare function guardLine(h: SessionHealth): string;
 declare function renderContextTax(t: ContextTax, currency?: string): string;
 /**
  * The retrospective health block for the pull-request comment. Collapsed, and
- * SILENT by default unless a session reached "watch" or worse — it speaks to the
+ * SILENT by default unless a session reached "watch" or worse; it speaks to the
  * reviewer ("look carefully here"), never scolds the author. With `always` it
  * emits a single green reassurance line instead.
  */

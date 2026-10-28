@@ -437,8 +437,8 @@ function renderMarkdown(receipt, opts = {}) {
   const { currency } = receipt;
   const lines = [];
   lines.push(COMMENT_MARKER);
-  const scope = receipt.branch ? ` \u2014 \`${receipt.branch}\`` : "";
-  lines.push(`### \u{1F9FE} Receipt${scope}`);
+  const scope = receipt.branch ? `: \`${receipt.branch}\`` : "";
+  lines.push(`### Receipt${scope}`);
   lines.push("");
   if (receipt.entryCount === 0) {
     lines.push("No AI usage recorded for this branch yet.");
@@ -459,7 +459,7 @@ function renderMarkdown(receipt, opts = {}) {
     const flag = frac > 1 ? "\u{1F534}" : frac > 0.8 ? "\u{1F7E1}" : "\u{1F7E2}";
     const verdict = frac > 1 ? `over budget by ${money(receipt.total - opts.budget.perPr, currency)}` : `${money(opts.budget.perPr - receipt.total, currency)} left`;
     lines.push(
-      `${flag} \`${progressBar(frac)}\` ${pct(frac)} of ${money(opts.budget.perPr, currency)} budget \u2014 ${verdict}`
+      `${flag} \`${progressBar(frac)}\` ${pct(frac)} of ${money(opts.budget.perPr, currency)} budget, ${verdict}`
     );
     lines.push("");
   }
@@ -473,7 +473,7 @@ function renderMarkdown(receipt, opts = {}) {
   lines.push("| --- | --: | --: | --: | --: | --: |");
   for (const m of receipt.byModel) {
     const badge = PROVIDER_BADGE[m.provider] ?? "\xB7";
-    const cost = m.priced ? money(m.costUsd, currency) : "\u2014";
+    const cost = m.priced ? money(m.costUsd, currency) : "n/a";
     lines.push(
       `| ${badge} \`${m.model}\` | ${m.calls} | ${tokens(m.inputTokens)} | ${tokens(m.outputTokens)} | ${tokens(m.cacheReadTokens + m.cacheWriteTokens)} | ${cost} |`
     );
@@ -508,7 +508,7 @@ function renderMarkdown(receipt, opts = {}) {
 function footer(opts) {
   const url = opts.repoUrl ?? "https://github.com/noah-thing/receipt";
   const priced = opts.priceUpdated ? ` \xB7 prices as of ${opts.priceUpdated}` : "";
-  return `<sub>\u{1F9FE} [Receipt](${url}) \xB7 measured from real token usage${priced}</sub>`;
+  return `<sub>[Receipt](${url}) \xB7 measured from real token usage${priced}</sub>`;
 }
 function renderText(receipt) {
   const c = receipt.currency;
@@ -524,7 +524,7 @@ function renderText(receipt) {
     `${"model".padEnd(nameW)}  ${"calls".padStart(6)}  ${"in".padStart(7)}  ${"out".padStart(7)}  ${"cache".padStart(7)}  ${"cost".padStart(9)}`
   );
   for (const m of receipt.byModel) {
-    const cost = m.priced ? money(m.costUsd, c) : "\u2014";
+    const cost = m.priced ? money(m.costUsd, c) : "n/a";
     out.push(
       `${m.model.padEnd(nameW)}  ${String(m.calls).padStart(6)}  ${tokens(m.inputTokens).padStart(7)}  ${tokens(m.outputTokens).padStart(7)}  ${tokens(m.cacheReadTokens + m.cacheWriteTokens).padStart(7)}  ${cost.padStart(9)}`
     );
@@ -1100,7 +1100,7 @@ function costDrivers(receipt) {
   const byCost = [...receipt.byModel].filter((m) => m.priced).sort((a, b) => b.costUsd - a.costUsd);
   const top = byCost[0];
   if (top && receipt.total > 0) {
-    out.push(`\`${top.model}\` \u2014 ${Math.round(top.costUsd / receipt.total * 100)}% of the spend`);
+    out.push(`\`${top.model}\`: ${Math.round(top.costUsd / receipt.total * 100)}% of the spend`);
   }
   const comp = whereItWent(receipt);
   const classes = [
@@ -1111,7 +1111,7 @@ function costDrivers(receipt) {
   ];
   classes.sort((a, b) => b[1] - a[1]);
   if (classes[0] && classes[0][1] > 0) {
-    out.push(`${classes[0][0]} \u2014 ${Math.round(classes[0][1] * 100)}% of the tokens`);
+    out.push(`${classes[0][0]}: ${Math.round(classes[0][1] * 100)}% of the tokens`);
   }
   if (receipt.retries > 0) out.push(`${receipt.retries} retr${receipt.retries === 1 ? "y" : "ies"}`);
   return out;
@@ -1130,7 +1130,7 @@ function recommend(receipt, pricing) {
       id: "cache-reuse",
       severity: "high",
       title: "Reuse your context instead of resending it",
-      detail: `Only ${Math.round(comp.cacheRead / Math.max(inputAll, 1e-9) * 100)}% of your input came from cache; the rest was fresh, billed roughly 10\xD7 higher for the exact same context. Keep the stable part of the prompt first and unchanged (same system prompt, same file order) so it caches, and avoid \`/clear\` mid-task \u2014 each clear throws the cache away and you pay full price to rebuild it. This is pure savings; the model still sees everything it did before.`,
+      detail: `Only ${Math.round(comp.cacheRead / Math.max(inputAll, 1e-9) * 100)}% of your input came from cache; the rest was fresh, billed roughly 10\xD7 higher for the exact same context. Keep the stable part of the prompt first and unchanged (same system prompt, same file order) so it caches, and avoid \`/clear\` mid-task. Each clear throws the cache away and you pay full price to rebuild it. This is pure savings; the model still sees everything it did before.`,
       impact: saving && saving > 0 ? `up to ~${money(saving, currency)} if it cached` : void 0
     });
   }
@@ -1140,7 +1140,7 @@ function recommend(receipt, pricing) {
       id: "model-mix",
       severity: wi.savedFrac >= 0.3 ? "high" : "medium",
       title: "Match the model to the task",
-      detail: `Most of this ran on \`${wi.fromModel}\`. Keep it for the real reasoning \u2014 but its plain file-reads and mechanical edits would cost a fraction on \`${wi.toModel}\` at the same quality for that kind of work. Send the easy parts down a tier and keep the hard thinking where it is.`,
+      detail: `Most of this ran on \`${wi.fromModel}\`. Keep it for the real reasoning, but its plain file-reads and mechanical edits would cost a fraction on \`${wi.toModel}\` at the same quality for that kind of work. Send the easy parts down a tier and keep the hard thinking where it is.`,
       impact: `~${money(wi.saved, currency)} \xB7 ${Math.round(wi.savedFrac * 100)}% of this`
     });
   }
@@ -1158,7 +1158,7 @@ function recommend(receipt, pricing) {
       id: "retries",
       severity: "medium",
       title: "Track down the retries",
-      detail: `${receipt.retries} ${receipt.retries === 1 ? "retry" : "retries"} across ${receipt.entryCount} calls (${Math.round(retryRate * 100)}%). Each one re-sends the full context and produces nothing new. They usually trace to a flaky tool, a malformed tool call, or transient overload \u2014 fixing the cause costs you no capability, just removes the wasted re-sends.`
+      detail: `${receipt.retries} ${receipt.retries === 1 ? "retry" : "retries"} across ${receipt.entryCount} calls (${Math.round(retryRate * 100)}%). Each one re-sends the full context and produces nothing new. They usually trace to a flaky tool, a malformed tool call, or transient overload. Fixing the cause costs you no capability, just removes the wasted re-sends.`
     });
   }
   const tools = Object.entries(receipt.toolTotals).filter(([, n]) => n > 0);
@@ -1168,7 +1168,7 @@ function recommend(receipt, pricing) {
       id: "tool-calls",
       severity: "low",
       title: "Mind the provider tool calls",
-      detail: `${toolTotal} provider tool call${toolTotal === 1 ? "" : "s"} (${tools.map(([t, n]) => `${n}\xD7 ${t.replace(/_/g, " ")}`).join(", ")}) are billed per request on top of tokens. Reuse results you'll need again, or scope searches more tightly \u2014 without skipping the ones that actually inform the work.`
+      detail: `${toolTotal} provider tool call${toolTotal === 1 ? "" : "s"} (${tools.map(([t, n]) => `${n}\xD7 ${t.replace(/_/g, " ")}`).join(", ")}) are billed per request on top of tokens. Reuse results you'll need again, or scope searches more tightly, without skipping the ones that actually inform the work.`
     });
   }
   if (receipt.unpricedModels.length > 0) {
@@ -1185,7 +1185,7 @@ function recommend(receipt, pricing) {
       id: "clean",
       severity: "low",
       title: "Already lean",
-      detail: `Good cache reuse, few retries, sensible model mix (grade ${grade.letter}). Nothing to cut without touching the actual work \u2014 keep an eye on it with \`receipt fuel\`.`
+      detail: `Good cache reuse, few retries, sensible model mix (grade ${grade.letter}). Nothing to cut without touching the actual work. Keep an eye on it with \`receipt fuel\`.`
     });
   }
   return recs.slice(0, 6);
@@ -1336,8 +1336,8 @@ function analyzeSession(session, now) {
     signals.push({
       key: "context-fill",
       severity: ctxSev,
-      detail: `Context is ~${Math.round(fill * 100)}% full (${Math.round(contextTokens / 1e3)}k of ${Math.round(contextWindow / 1e3)}k). Usable context is only ~50\u201365% of the window, so quality sags before it's "full."`,
-      action: ctxSev === "high" ? "/compact now (or start a fresh session) \u2014 past here, even the summary gets lossy" : "good moment to /compact \u2014 Anthropic suggests it around 50\u201360%, before quality dips"
+      detail: `Context is ~${Math.round(fill * 100)}% full (${Math.round(contextTokens / 1e3)}k of ${Math.round(contextWindow / 1e3)}k). Usable context is only ~50 to 65% of the window, so quality sags before it's "full."`,
+      action: ctxSev === "high" ? "/compact now (or start a fresh session): past here even the summary gets lossy" : "good moment to /compact, Anthropic suggests it around 50 to 60%, before quality dips"
     });
   }
   const turnSev = calls >= 25 ? "high" : calls >= 12 ? "watch" : "ok";
@@ -1363,7 +1363,7 @@ function analyzeSession(session, now) {
       signals.push({
         key: "cache-health",
         severity: cacheSev,
-        detail: `Only ${Math.round(cacheReadShare * 100)}% of cache activity is reuse \u2014 the context keeps changing, so cache (and coherence) reset each turn.`,
+        detail: `Only ${Math.round(cacheReadShare * 100)}% of cache activity is reuse. The context keeps changing, so cache (and coherence) reset each turn.`,
         action: "keep the stable parts (system prompt, key files) first and unchanged; let volatile context come last."
       });
     }
@@ -1380,7 +1380,7 @@ function analyzeSession(session, now) {
     signals.push({
       key: "looping",
       severity: "watch",
-      detail: `${recentRetries} retries in the last few turns \u2014 a sign the agent is stuck repeating an approach.`,
+      detail: `${recentRetries} retries in the last few turns: a sign the agent is stuck repeating an approach.`,
       action: "/rewind to before the loop and change approach, or restate the goal with an explicit success check."
     });
   }
@@ -1388,7 +1388,7 @@ function analyzeSession(session, now) {
     signals.push({
       key: "output-shrink",
       severity: "watch",
-      detail: `Responses are ~${Math.round(outputDecline * 100)}% shorter than earlier in the session \u2014 often a sign focus is slipping.`,
+      detail: `Responses are ~${Math.round(outputDecline * 100)}% shorter than earlier in the session, often a sign focus is slipping.`,
       action: "re-state the task and constraints in a fresh message, or /compact to clear the bloat."
     });
   }
@@ -1619,7 +1619,7 @@ function sourceNote(b) {
   if (b.source === "observed") return "from live rate-limit headers";
   if (b.source === "calibrated") return "calibrated from a real limit you hit";
   if (b.source === "custom") return "your custom budget";
-  return "estimated preset \u2014 run the proxy or `receipt calibrate` for real numbers";
+  return "estimated preset; run the proxy or `receipt calibrate` for real numbers";
 }
 function capacityPhrase(items) {
   if (items.length === 0) return "not enough left for a full task";
@@ -1628,7 +1628,7 @@ function capacityPhrase(items) {
 function usageBlockMarkdown(receipt, fuel2, extras = {}) {
   if (receipt.totalTokens === 0) return "";
   const lines = [];
-  lines.push("<details><summary>\u{1F50B} <b>Usage impact</b> \u2014 what this cost <i>you</i></summary>");
+  lines.push("<details><summary><b>Usage impact</b>: what this cost <i>you</i></summary>");
   lines.push("");
   const impact = taskImpact(receipt.totalTokens, fuel2.budget);
   if (impact && fuel2.budget) {
@@ -1642,12 +1642,12 @@ function usageBlockMarkdown(receipt, fuel2, extras = {}) {
   lines.push(`That's about **${inWorkUnits(receipt.totalTokens, fuel2.sizes)}** in your own work.`);
   const grade = efficiencyGrade(receipt);
   lines.push(
-    `Efficiency: **${grade.letter}** (${grade.score}/100) \u2014 ${Math.round(grade.cacheHitRate * 100)}% served from cache, ${receipt.retries} ${receipt.retries === 1 ? "retry" : "retries"}.`
+    `Efficiency: **${grade.letter}** (${grade.score}/100), ${Math.round(grade.cacheHitRate * 100)}% served from cache, ${receipt.retries} ${receipt.retries === 1 ? "retry" : "retries"}.`
   );
   if (extras.topTip) {
     const t = extras.topTip;
     lines.push(
-      `\u{1F4A1} **Biggest win:** ${t.title}${t.impact ? ` (${t.impact})` : ""}. Run \`receipt advice\` for the full list.`
+      `**Biggest win:** ${t.title}${t.impact ? ` (${t.impact})` : ""}. Run \`receipt advice\` for the full list.`
     );
   }
   if (extras.fun) {
@@ -1673,7 +1673,7 @@ function gaugeLine(label, w, now) {
 function renderFuel(fuel2, now, extras = {}) {
   const out = [];
   out.push("");
-  out.push(import_picocolors.default.bold("\u{1F50B} Fuel \u2014 how much of you this is using"));
+  out.push(import_picocolors.default.bold("Fuel: how much of you this is using"));
   out.push("");
   out.push(gaugeLine("5-hour window", fuel2.fiveHour, now));
   out.push(gaugeLine("weekly cap", fuel2.weekly, now));
@@ -1723,7 +1723,7 @@ function renderStatusline(fuel2, now) {
   if (fuel2.budget && fuel2.fiveHour.frac !== void 0) {
     parts.push(`resets ${until(now, fuel2.fiveHour.resetAt)}`);
   }
-  return "\u{1F50B} " + parts.join(" \xB7 ");
+  return parts.join(" \xB7 ");
 }
 function renderRecords(entries) {
   const r = records(entries);
@@ -1740,7 +1740,7 @@ function renderRecords(entries) {
   if (r.leanest) out.push(`\u{1FAB6} Leanest task:  ${import_picocolors.default.bold(r.leanest.key)} ${import_picocolors.default.dim(`(${tokens(r.leanest.tokens)} tokens)`)}`);
   if (r.latest && r.latestRank) {
     out.push(
-      `\u{1F4CD} Most recent:  ${import_picocolors.default.bold(r.latest.key)} \u2014 #${r.latestRank} heaviest of ${r.priciest ? "all" : ""} your tasks`
+      `Most recent:  ${import_picocolors.default.bold(r.latest.key)}, #${r.latestRank} heaviest of ${r.priciest ? "all" : ""} your tasks`
     );
   }
   if (r.streakUnderMedian > 0) {
@@ -1789,13 +1789,13 @@ function usageSummaryText(receipt, fuel2, extras = {}) {
   }
   head.push(`\u2248 ${inWorkUnits(receipt.totalTokens, fuel2.sizes)}`);
   head.push(`grade ${grade.letter} (${grade.score}/100)`);
-  out.push(import_picocolors.default.bold("\u{1F50B} ") + head.join(import_picocolors.default.dim(" \xB7 ")));
+  out.push(head.join(import_picocolors.default.dim(" \xB7 ")));
   out.push(import_picocolors.default.dim("   " + whereItWentText(receipt)));
   if (impact && fuel2.budget) {
     out.push(import_picocolors.default.dim(`   ${capacityPhrase(fuel2.capacityFiveHour)} left in this 5h window`));
   }
   if (extras.topTip) {
-    out.push(import_picocolors.default.dim(`   \u{1F4A1} ${extras.topTip.title}${extras.topTip.impact ? ` (${extras.topTip.impact})` : ""}`));
+    out.push(import_picocolors.default.dim(`   Tip: ${extras.topTip.title}${extras.topTip.impact ? ` (${extras.topTip.impact})` : ""}`));
   }
   if (extras.fun) {
     const eq = funEquivalences(receipt.totalTokens, extras.repoTokens);
@@ -1838,7 +1838,7 @@ function sigMark(sev) {
 function renderHealth(h, tax, currency = "USD") {
   const out = [];
   out.push("");
-  out.push(import_picocolors.default.bold("\u{1F9E0} Session health \u2014 keeping the agent sharp"));
+  out.push(import_picocolors.default.bold("Session health: keeping the agent sharp"));
   out.push("");
   if (!h) {
     out.push(import_picocolors.default.dim("No recent session in the ledger yet. Run your agent (or import it), then check back."));
@@ -1868,7 +1868,7 @@ function renderHealth(h, tax, currency = "USD") {
   }
   out.push(
     import_picocolors.default.dim(
-      "Why act early: usable context is only ~50\u201365% of the window (RULER), and recall sags past ~50% fill. Compacting before the wall keeps quality high \u2014 it doesn't make the agent do less."
+      "Why act early: usable context is only ~50 to 65% of the window (RULER), and recall sags past ~50% fill. Compacting before the wall keeps quality high; it doesn't make the agent do less."
     )
   );
   out.push("");
@@ -1880,13 +1880,13 @@ function healthOneLine(h) {
   const parts = [`${dot2} ctx ${Math.round(h.fill * 100)}%`, `${h.calls} turns`];
   const top = h.signals[0];
   if (top && top.severity !== "ok") parts.push(top.key.replace(/-/g, " "));
-  return "\u{1F9E0} " + parts.join(" \xB7 ");
+  return parts.join(" \xB7 ");
 }
 function guardLine(h) {
   const top = h.signals[0];
   const pctFull = Math.round(h.fill * 100);
   const head = `receipt: session ${h.status} (ctx ~${pctFull}%, ${h.calls} turns)`;
-  return top ? `${head} \u2014 ${top.action}` : head;
+  return top ? `${head}. ${top.action}` : head;
 }
 function renderContextTax(t, currency = "USD") {
   if (t.totalTokens === 0) return "";
@@ -1928,7 +1928,7 @@ function healthBlockMarkdown(ph, opts = {}) {
   const worthIt = STATUS_RANK[ph.worst] >= STATUS_RANK.watch;
   if (!worthIt) {
     if (!opts.always) return "";
-    return `\u{1F9E0} Session health \u2014 all ${ph.sessions} session${ph.sessions === 1 ? "" : "s"} stayed healthy (peaked ~${Math.round(ph.peakFill * 100)}% context).`;
+    return `Session health: all ${ph.sessions} session${ph.sessions === 1 ? "" : "s"} stayed healthy (peaked ~${Math.round(ph.peakFill * 100)}% context).`;
   }
   const flagged = ph.analyzed.filter((h) => STATUS_RANK[h.status] >= STATUS_RANK.watch).length;
   const peakK = Math.round(ph.peakContextTokens / 1e3);
@@ -1936,11 +1936,11 @@ function healthBlockMarkdown(ph, opts = {}) {
   const lines = [];
   lines.push("<details>");
   lines.push(
-    `<summary>\u{1F9E0} Session health \u2014 ${flagged} of ${ph.sessions} session${ph.sessions === 1 ? "" : "s"} was ${ph.worst}</summary>`
+    `<summary>Session health: ${flagged} of ${ph.sessions} session${ph.sessions === 1 ? "" : "s"} was ${ph.worst}</summary>`
   );
   lines.push("");
   lines.push(
-    `This PR's AI work spanned **${ph.sessions} session${ph.sessions === 1 ? "" : "s"}**. The longest ran **${ph.longestTurns} turns / ${Math.round(ph.longestMin)} min**, and context peaked at **~${Math.round(ph.peakFill * 100)}% full (${peakK}k/${winK}k)**` + (ph.totalCompactions > 0 ? ` with **~${ph.totalCompactions} auto-compaction${ph.totalCompactions === 1 ? "" : "s"}**` : "") + `. Long, compacted sessions drift \u2014 early decisions fade and summaries drop precise detail \u2014 so these changes are **worth a careful review** for consistency and correctness. Nothing here says the code is wrong; it's a pointer to where to look.`
+    `This PR's AI work spanned **${ph.sessions} session${ph.sessions === 1 ? "" : "s"}**. The longest ran **${ph.longestTurns} turns / ${Math.round(ph.longestMin)} min**, and context peaked at **~${Math.round(ph.peakFill * 100)}% full (${peakK}k/${winK}k)**` + (ph.totalCompactions > 0 ? ` with **~${ph.totalCompactions} auto-compaction${ph.totalCompactions === 1 ? "" : "s"}**` : "") + `. Long, compacted sessions drift: early decisions fade and summaries drop precise detail, so these changes are **worth a careful review** for consistency and correctness. Nothing here says the code is wrong; it's a pointer to where to look.`
   );
   lines.push("");
   for (const s of ph.topSignals) {
@@ -1949,7 +1949,7 @@ function healthBlockMarkdown(ph, opts = {}) {
   }
   lines.push("");
   lines.push(
-    "<sub>Measured from token counts only \u2014 no prompts or code were read. Usable context is ~50\u201365% of the window (RULER); recall sags past ~50% fill.</sub>"
+    "<sub>Measured from token counts only; no prompts or code were read. Usable context is ~50 to 65% of the window (RULER); recall sags past ~50% fill.</sub>"
   );
   lines.push("</details>");
   return lines.join("\n");
@@ -1957,7 +1957,7 @@ function healthBlockMarkdown(ph, opts = {}) {
 function renderHealthHistory(rows, limit = 12, profile) {
   const out = [];
   out.push("");
-  out.push(import_picocolors.default.bold("\u{1F9E0} Session history \u2014 how your sessions have held up"));
+  out.push(import_picocolors.default.bold("Session history: how your sessions have held up"));
   out.push("");
   if (rows.length === 0) {
     out.push(import_picocolors.default.dim("No sessions in the ledger yet. Run your agent (or import it), then check back."));
@@ -1997,7 +1997,7 @@ function degradationProfileLine(p) {
   }
   if (p.lateCompactionRate !== void 0 && p.lateCompactionRate > 0) {
     parts.push(
-      `${Math.round(p.lateCompactionRate * 100)}% of your sessions that crossed 80% full compacted *after* the fact \u2014 try /compact at 60%.`
+      `${Math.round(p.lateCompactionRate * 100)}% of your sessions that crossed 80% full compacted *after* the fact. Try /compact at 60%.`
     );
   }
   return parts.length ? import_picocolors.default.dim("  " + parts.join("  ")) : "";
@@ -2005,7 +2005,7 @@ function degradationProfileLine(p) {
 function renderAdvice(receipt, recs) {
   const out = [];
   out.push("");
-  out.push(import_picocolors.default.bold("\u{1F4A1} Advice \u2014 cut the waste, keep the quality"));
+  out.push(import_picocolors.default.bold("Advice: cut the waste, keep the quality"));
   out.push("");
   if (receipt.totalTokens === 0) {
     out.push(import_picocolors.default.dim("No usage recorded for this scope yet. Run your agent, then check back."));

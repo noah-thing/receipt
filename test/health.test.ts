@@ -58,8 +58,8 @@ describe("sessionize", () => {
   it("splits on idle gaps over 30 minutes", () => {
     const entries = [
       e({ ts: iso(10000) }),
-      e({ ts: iso(9900) }), // ~1.6 min later — same session
-      e({ ts: iso(200) }), // ~2.7h later — new session
+      e({ ts: iso(9900) }), // ~1.6 min later: same session
+      e({ ts: iso(200) }), // ~2.7h later: new session
       e({ ts: iso(120) }),
     ];
     const s = sessionize(entries);
@@ -242,7 +242,7 @@ describe("guardLine", () => {
     expect(line).toMatch(/receipt: session (degrading|critical)/);
     expect(line).toMatch(/ctx ~9\d%/);
     expect(line).toMatch(/turns/);
-    expect(line).toContain("—"); // includes the action
+    expect(line).toContain(". "); // includes the action
   });
 });
 

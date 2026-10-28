@@ -68,7 +68,7 @@ function sourceNote(b: PlanBudget | undefined): string {
   if (b.source === "observed") return "from live rate-limit headers";
   if (b.source === "calibrated") return "calibrated from a real limit you hit";
   if (b.source === "custom") return "your custom budget";
-  return "estimated preset — run the proxy or `receipt calibrate` for real numbers";
+  return "estimated preset; run the proxy or `receipt calibrate` for real numbers";
 }
 
 function capacityPhrase(items: ReturnType<typeof capacity>): string {
@@ -92,7 +92,7 @@ export interface UsageBlockExtras {
 export function usageBlockMarkdown(receipt: Receipt, fuel: Fuel, extras: UsageBlockExtras = {}): string {
   if (receipt.totalTokens === 0) return "";
   const lines: string[] = [];
-  lines.push("<details><summary>🔋 <b>Usage impact</b> — what this cost <i>you</i></summary>");
+  lines.push("<details><summary><b>Usage impact</b>: what this cost <i>you</i></summary>");
   lines.push("");
 
   const impact = taskImpact(receipt.totalTokens, fuel.budget);
@@ -110,7 +110,7 @@ export function usageBlockMarkdown(receipt: Receipt, fuel: Fuel, extras: UsageBl
 
   const grade = efficiencyGrade(receipt);
   lines.push(
-    `Efficiency: **${grade.letter}** (${grade.score}/100) — ` +
+    `Efficiency: **${grade.letter}** (${grade.score}/100), ` +
       `${Math.round(grade.cacheHitRate * 100)}% served from cache, ` +
       `${receipt.retries} ${receipt.retries === 1 ? "retry" : "retries"}.`,
   );
@@ -118,7 +118,7 @@ export function usageBlockMarkdown(receipt: Receipt, fuel: Fuel, extras: UsageBl
   if (extras.topTip) {
     const t = extras.topTip;
     lines.push(
-      `💡 **Biggest win:** ${t.title}${t.impact ? ` (${t.impact})` : ""}. ` +
+      `**Biggest win:** ${t.title}${t.impact ? ` (${t.impact})` : ""}. ` +
         "Run `receipt advice` for the full list.",
     );
   }
@@ -154,7 +154,7 @@ function gaugeLine(label: string, w: { used: number; budget?: number; frac?: num
 export function renderFuel(fuel: Fuel, now: number, extras: { fun?: boolean; repoTokens?: number } = {}): string {
   const out: string[] = [];
   out.push("");
-  out.push(pc.bold("🔋 Fuel — how much of you this is using"));
+  out.push(pc.bold("Fuel: how much of you this is using"));
   out.push("");
   out.push(gaugeLine("5-hour window", fuel.fiveHour, now));
   out.push(gaugeLine("weekly cap", fuel.weekly, now));
@@ -210,7 +210,7 @@ export function renderStatusline(fuel: Fuel, now: number): string {
   if (fuel.budget && fuel.fiveHour.frac !== undefined) {
     parts.push(`resets ${until(now, fuel.fiveHour.resetAt)}`);
   }
-  return "🔋 " + parts.join(" · ");
+  return parts.join(" · ");
 }
 
 // ── terminal: records ────────────────────────────────────────────────────────
@@ -230,7 +230,7 @@ export function renderRecords(entries: LedgerEntry[]): string {
   if (r.leanest) out.push(`🪶 Leanest task:  ${pc.bold(r.leanest.key)} ${pc.dim(`(${tokens(r.leanest.tokens)} tokens)`)}`);
   if (r.latest && r.latestRank) {
     out.push(
-      `📍 Most recent:  ${pc.bold(r.latest.key)} — #${r.latestRank} heaviest of ${r.priciest ? "all" : ""} your tasks`,
+      `Most recent:  ${pc.bold(r.latest.key)}, #${r.latestRank} heaviest of ${r.priciest ? "all" : ""} your tasks`,
     );
   }
   if (r.streakUnderMedian > 0) {
@@ -296,13 +296,13 @@ export function usageSummaryText(
   }
   head.push(`≈ ${inWorkUnits(receipt.totalTokens, fuel.sizes)}`);
   head.push(`grade ${grade.letter} (${grade.score}/100)`);
-  out.push(pc.bold("🔋 ") + head.join(pc.dim(" · ")));
+  out.push(head.join(pc.dim(" · ")));
   out.push(pc.dim("   " + whereItWentText(receipt)));
   if (impact && fuel.budget) {
     out.push(pc.dim(`   ${capacityPhrase(fuel.capacityFiveHour)} left in this 5h window`));
   }
   if (extras.topTip) {
-    out.push(pc.dim(`   💡 ${extras.topTip.title}${extras.topTip.impact ? ` (${extras.topTip.impact})` : ""}`));
+    out.push(pc.dim(`   Tip: ${extras.topTip.title}${extras.topTip.impact ? ` (${extras.topTip.impact})` : ""}`));
   }
   if (extras.fun) {
     const eq = funEquivalences(receipt.totalTokens, extras.repoTokens);
@@ -359,7 +359,7 @@ export function renderHealth(
 ): string {
   const out: string[] = [];
   out.push("");
-  out.push(pc.bold("🧠 Session health — keeping the agent sharp"));
+  out.push(pc.bold("Session health: keeping the agent sharp"));
   out.push("");
   if (!h) {
     out.push(pc.dim("No recent session in the ledger yet. Run your agent (or import it), then check back."));
@@ -393,8 +393,8 @@ export function renderHealth(
   }
   out.push(
     pc.dim(
-      "Why act early: usable context is only ~50–65% of the window (RULER), and recall sags past ~50% fill. " +
-        "Compacting before the wall keeps quality high — it doesn't make the agent do less.",
+      "Why act early: usable context is only ~50 to 65% of the window (RULER), and recall sags past ~50% fill. " +
+        "Compacting before the wall keeps quality high; it doesn't make the agent do less.",
     ),
   );
   out.push("");
@@ -408,7 +408,7 @@ export function healthOneLine(h: SessionHealth | undefined): string {
   const parts = [`${dot} ctx ${Math.round(h.fill * 100)}%`, `${h.calls} turns`];
   const top = h.signals[0];
   if (top && top.severity !== "ok") parts.push(top.key.replace(/-/g, " "));
-  return "🧠 " + parts.join(" · ");
+  return parts.join(" · ");
 }
 
 /**
@@ -419,7 +419,7 @@ export function guardLine(h: SessionHealth): string {
   const top = h.signals[0];
   const pctFull = Math.round(h.fill * 100);
   const head = `receipt: session ${h.status} (ctx ~${pctFull}%, ${h.calls} turns)`;
-  return top ? `${head} — ${top.action}` : head;
+  return top ? `${head}. ${top.action}` : head;
 }
 
 /** The "context tax" block: how much of a session is just re-sending itself. */
@@ -464,7 +464,7 @@ const STATUS_DOT: Record<HealthStatus, string> = {
 
 /**
  * The retrospective health block for the pull-request comment. Collapsed, and
- * SILENT by default unless a session reached "watch" or worse — it speaks to the
+ * SILENT by default unless a session reached "watch" or worse; it speaks to the
  * reviewer ("look carefully here"), never scolds the author. With `always` it
  * emits a single green reassurance line instead.
  */
@@ -477,7 +477,7 @@ export function healthBlockMarkdown(
   if (!worthIt) {
     if (!opts.always) return "";
     return (
-      `🧠 Session health — all ${ph.sessions} session${ph.sessions === 1 ? "" : "s"} stayed healthy ` +
+      `Session health: all ${ph.sessions} session${ph.sessions === 1 ? "" : "s"} stayed healthy ` +
       `(peaked ~${Math.round(ph.peakFill * 100)}% context).`
     );
   }
@@ -488,7 +488,7 @@ export function healthBlockMarkdown(
   const lines: string[] = [];
   lines.push("<details>");
   lines.push(
-    `<summary>🧠 Session health — ${flagged} of ${ph.sessions} session${ph.sessions === 1 ? "" : "s"} ` +
+    `<summary>Session health: ${flagged} of ${ph.sessions} session${ph.sessions === 1 ? "" : "s"} ` +
       `was ${ph.worst}</summary>`,
   );
   lines.push("");
@@ -497,7 +497,7 @@ export function healthBlockMarkdown(
       `**${ph.longestTurns} turns / ${Math.round(ph.longestMin)} min**, and context peaked at ` +
       `**~${Math.round(ph.peakFill * 100)}% full (${peakK}k/${winK}k)**` +
       (ph.totalCompactions > 0 ? ` with **~${ph.totalCompactions} auto-compaction${ph.totalCompactions === 1 ? "" : "s"}**` : "") +
-      `. Long, compacted sessions drift — early decisions fade and summaries drop precise detail — so these ` +
+      `. Long, compacted sessions drift: early decisions fade and summaries drop precise detail, so these ` +
       `changes are **worth a careful review** for consistency and correctness. Nothing here says the code is ` +
       `wrong; it's a pointer to where to look.`,
   );
@@ -508,7 +508,7 @@ export function healthBlockMarkdown(
   }
   lines.push("");
   lines.push(
-    "<sub>Measured from token counts only — no prompts or code were read. Usable context is ~50–65% of " +
+    "<sub>Measured from token counts only; no prompts or code were read. Usable context is ~50 to 65% of " +
       "the window (RULER); recall sags past ~50% fill.</sub>",
   );
   lines.push("</details>");
@@ -523,7 +523,7 @@ export function renderHealthHistory(
 ): string {
   const out: string[] = [];
   out.push("");
-  out.push(pc.bold("🧠 Session history — how your sessions have held up"));
+  out.push(pc.bold("Session history: how your sessions have held up"));
   out.push("");
   if (rows.length === 0) {
     out.push(pc.dim("No sessions in the ledger yet. Run your agent (or import it), then check back."));
@@ -579,7 +579,7 @@ export function degradationProfileLine(p: {
   if (p.lateCompactionRate !== undefined && p.lateCompactionRate > 0) {
     parts.push(
       `${Math.round(p.lateCompactionRate * 100)}% of your sessions that crossed 80% full compacted ` +
-        `*after* the fact — try /compact at 60%.`,
+        `*after* the fact. Try /compact at 60%.`,
     );
   }
   return parts.length ? pc.dim("  " + parts.join("  ")) : "";
@@ -588,7 +588,7 @@ export function degradationProfileLine(p: {
 export function renderAdvice(receipt: Receipt, recs: Recommendation[]): string {
   const out: string[] = [];
   out.push("");
-  out.push(pc.bold("💡 Advice — cut the waste, keep the quality"));
+  out.push(pc.bold("Advice: cut the waste, keep the quality"));
   out.push("");
   if (receipt.totalTokens === 0) {
     out.push(pc.dim("No usage recorded for this scope yet. Run your agent, then check back."));

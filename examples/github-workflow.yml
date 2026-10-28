@@ -27,7 +27,7 @@ jobs:
         with:
           fetch-depth: 0 # so the base..head commit range resolves
 
-      # Option 2 example — uncomment if you upload the ledger as an artifact:
+      # Option 2 example: uncomment if you upload the ledger as an artifact:
       # - name: Restore ledger
       #   uses: actions/download-artifact@v4
       #   with:

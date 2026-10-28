@@ -251,7 +251,7 @@ describe("presetFor (foolproof against bad plan ids)", () => {
     expect(presetFor("pro")?.plan).toBe("pro");
   });
   it("never resolves an inherited prototype member", () => {
-    // 'toString' in PLAN_PRESETS is true via the prototype — must not leak.
+    // 'toString' in PLAN_PRESETS is true via the prototype: must not leak.
     expect(presetFor("toString")).toBeUndefined();
     expect(presetFor("constructor")).toBeUndefined();
     expect(presetFor("custom")).toBeUndefined();

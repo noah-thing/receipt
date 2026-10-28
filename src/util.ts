@@ -1,4 +1,3 @@
-/** Format a USD amount with sensible precision for small agent costs. */
 export function money(usd: number, currency = "USD"): string {
   const symbol = currency === "USD" ? "$" : "";
   const suffix = currency === "USD" ? "" : ` ${currency}`;
@@ -17,7 +16,6 @@ export function tokens(n: number): string {
 
 const BARS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
 
-/** A unicode sparkline from a series of values. */
 export function sparkline(values: number[]): string {
   if (values.length === 0) return "";
   const max = Math.max(...values);
@@ -51,7 +49,6 @@ export function timeBuckets(timestamps: string[], values: number[], maxBuckets =
   return buckets;
 }
 
-/** Render a fixed-width ASCII progress bar, e.g. budget used. */
 export function progressBar(fraction: number, width = 20): string {
   const f = Math.max(0, Math.min(1, fraction));
   const filled = Math.round(f * width);

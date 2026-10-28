@@ -57,7 +57,7 @@ const program = new Command();
 
 program
   .name("receipt")
-  .description("See exactly what your AI coding agent cost — itemized on every pull request.")
+  .description("See exactly what your AI coding agent cost, itemized on every pull request.")
   .version("0.5.0");
 
 function repoRoot(): string {
@@ -77,7 +77,7 @@ function drainStdin(): Promise<void> {
     process.stdin.on("data", () => {});
     process.stdin.on("end", done);
     process.stdin.on("error", done);
-    // Safety net: never hang the hook if stdin stays open with no EOF.
+    // Never hang the hook if stdin stays open with no EOF.
     setTimeout(done, 250).unref?.();
   });
 }
@@ -87,7 +87,6 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-// ── proxy ──────────────────────────────────────────────────────────────────
 program
   .command("proxy")
   .description("Run a logging proxy. Point ANTHROPIC_BASE_URL / OPENAI_BASE_URL at it.")
@@ -122,7 +121,6 @@ program
     process.on("SIGTERM", shutdown);
   });
 
-// ── import ─────────────────────────────────────────────────────────────────
 const importCmd = program.command("import").description("Pull usage into the ledger from a tool's own logs.");
 
 importCmd
@@ -174,7 +172,6 @@ function writeEntries(root: string, entries: LedgerEntry[], source: string): voi
   );
 }
 
-// ── show ───────────────────────────────────────────────────────────────────
 program
   .command("show")
   .description("Print the receipt for the current branch to the terminal.")
@@ -198,7 +195,6 @@ program
       return;
     }
     let out = "\n" + colorizeText(renderText(receipt), config) + "\n";
-    // The usage block: what this branch cost *you*, against your plan window.
     if (config.usage !== false) {
       const allEntries = readLedger(ledgerPath(root));
       const f = fuel(allEntries, resolveBudget(config, root), Date.now());
@@ -213,7 +209,6 @@ program
     process.stdout.write(out + "\n");
   });
 
-// ── pr (render markdown) ─────────────────────────────────────────────────────
 program
   .command("pr")
   .description("Render the pull-request receipt as markdown (prints to stdout).")
@@ -231,7 +226,6 @@ program
     }
   });
 
-// ── post (upsert PR comment) ─────────────────────────────────────────────────
 program
   .command("post")
   .description("Post or update the receipt as a sticky comment on the pull request.")
@@ -263,7 +257,6 @@ program
     process.stderr.write(pc.green("✓ ") + `${result.action} receipt on ${ctx.repo}#${pr}\n  ${result.url}\n`);
   });
 
-// ── dashboard ────────────────────────────────────────────────────────────────
 program
   .command("dashboard")
   .description("Serve a local dashboard of all recorded spend.")
@@ -276,7 +269,6 @@ program
     if (opts.open !== false) openBrowser(url);
   });
 
-// ── wrapped ──────────────────────────────────────────────────────────────────
 program
   .command("wrapped")
   .description("A shareable summary of recent AI spend.")
@@ -294,7 +286,7 @@ program
       : 0;
     const lines = [
       "",
-      pc.bold(`🧾 Receipt — last ${days} days`),
+      pc.bold(`Receipt: last ${days} days`),
       "",
       `  ${pc.bold(money(data.totals.cost))} across ${data.totals.calls} calls and ${data.byBranch.length} branches`,
       `  ${tokens(data.totals.tokens)} tokens`,
@@ -307,7 +299,6 @@ program
     process.stdout.write(lines.join("\n") + "\n");
   });
 
-// ── budget ───────────────────────────────────────────────────────────────────
 const budgetCmd = program.command("budget").description("Set or show spend ceilings.");
 budgetCmd
   .command("set <scope> <amount>")
@@ -337,7 +328,7 @@ budgetCmd
     process.stderr.write(
       pc.green("✓ ") +
         `plan set to ${pc.bold(id)} ` +
-        pc.dim(`(~${tokens(p.fiveHour)} per 5h, ~${tokens(p.weekly)} per week — estimates; calibrate for real numbers)\n`),
+        pc.dim(`(~${tokens(p.fiveHour)} per 5h, ~${tokens(p.weekly)} per week, estimates. Calibrate for real numbers)\n`),
     );
   });
 budgetCmd.action(() => {
@@ -346,14 +337,13 @@ budgetCmd.action(() => {
   const b = config.budget ?? {};
   const wb = resolveBudget(config, root);
   process.stdout.write(
-    `per PR:  ${b.perPr ? money(b.perPr) : "—"}\n` +
-      `per day: ${b.perDay ? money(b.perDay) : "—"}\n` +
-      `plan:    ${config.plan ?? "—"}\n` +
-      `window:  ${wb ? `~${tokens(wb.fiveHour)} / 5h · ~${tokens(wb.weekly)} / week (${wb.source})` : "— (set one with `receipt budget plan …`)"}\n`,
+    `per PR:  ${b.perPr ? money(b.perPr) : "none"}\n` +
+      `per day: ${b.perDay ? money(b.perDay) : "none"}\n` +
+      `plan:    ${config.plan ?? "none"}\n` +
+      `window:  ${wb ? `~${tokens(wb.fiveHour)} / 5h · ~${tokens(wb.weekly)} / week (${wb.source})` : "none (set one with `receipt budget plan …`)"}\n`,
   );
 });
 
-// ── fuel (current usage state) ───────────────────────────────────────────────
 program
   .command("fuel")
   .description("How much of your plan you're using right now, and what's left.")
@@ -371,7 +361,6 @@ program
     process.stdout.write(out);
   });
 
-// ── records ──────────────────────────────────────────────────────────────────
 program
   .command("records")
   .description("Your heaviest, leanest, and most recent tasks, ranked.")
@@ -380,7 +369,6 @@ program
     process.stdout.write(renderRecords(readLedger(ledgerPath(root))));
   });
 
-// ── forecast ─────────────────────────────────────────────────────────────────
 program
   .command("forecast")
   .description("Predict a typical task's impact and your weekly runway.")
@@ -392,11 +380,10 @@ program
     process.stdout.write(renderForecast(f, now));
   });
 
-// ── advice ───────────────────────────────────────────────────────────────────
 program
   .command("advice")
   .alias("tips")
-  .description("How to cut wasted tokens — without making the work worse.")
+  .description("How to cut wasted tokens, without making the work worse.")
   .option("--branch <branch>", "branch to scope to (default: current)")
   .option("--base <base>", "base branch to diff against", "main")
   .option("--all", "analyze the whole ledger, ignoring branch")
@@ -413,7 +400,6 @@ program
     process.stdout.write(renderAdvice(receipt, recs));
   });
 
-// ── health (session quality) ─────────────────────────────────────────────────
 program
   .command("health")
   .alias("session")
@@ -450,7 +436,6 @@ program
     process.exitCode = healthExitCode(h, opts.gate as HealthStatus);
   });
 
-// ── guard (Claude Code hook entrypoint) ──────────────────────────────────────
 program
   .command("guard")
   .description("Hook entrypoint: nudge the agent the moment a session starts to degrade.")
@@ -471,7 +456,6 @@ program
     }
   });
 
-// ── statusline (for Claude Code) ─────────────────────────────────────────────
 program
   .command("statusline")
   .description("One-line usage gauge, designed for the Claude Code statusline.")
@@ -485,7 +469,6 @@ program
     process.stdout.write(renderStatusline(f, now) + (h ? "  " + healthOneLine(h) : "") + "\n");
   });
 
-// ── calibrate (set a real window budget) ─────────────────────────────────────
 program
   .command("calibrate")
   .description("Set your real window budget from a limit you just hit.")
@@ -514,7 +497,6 @@ program
     );
   });
 
-// ── helpers ──────────────────────────────────────────────────────────────────
 function computeReceipt(
   root: string,
   o: { branch?: string; base: string; allEntries: boolean; today: boolean },
@@ -556,7 +538,6 @@ function renderPrMarkdown(root: string, branch: string | undefined, base: string
     series: selected.map((e) => ({ ts: e.ts, cost: e.costUsd ?? 0 })),
     priceUpdated: pricing.updated(),
   });
-  // Append the usage-impact block: what this PR cost *you* against your plan.
   if (config.usage !== false) {
     const f = fuel(entries, resolveBudget(config, root), Date.now());
     const fun = config.fun === true;
