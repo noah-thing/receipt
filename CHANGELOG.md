@@ -6,6 +6,26 @@ for [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-28
+
+Catches the tool up with the models and tools of late 2026.
+
+### Added
+
+- `receipt import codex`: token usage from Codex CLI session logs under `~/.codex/sessions`, with cached input split out and priced at the cache rate.
+- Prices for the Claude 5 family (Opus 5.5, Sonnet 5.5, Haiku 5.5, Fable 5.1 and earlier 5.x), GPT-5 and GPT-6, Gemini 3 and 4, and Grok 4.x, checked against each provider's pricing page on 2026-10-28.
+- An `xai` provider family, with its own badge and dashboard colour.
+
+### Changed
+
+- Claude Opus 4.5 to 4.8 are priced at $5 / $25 per million tokens, not $15 / $75. Opus 4.1 and earlier keep $15 / $75.
+- The `opus`, `sonnet` and `haiku` aliases and the `claude-*` fallbacks resolve to the 5.5 models. Dated ids resolve to their own version instead of a neighbour.
+- `gemini-2.5-flash-lite` no longer matches the `gemini-2.5-flash` prefix and is priced on its own.
+- `o3`, `o4-mini` and the Gemini 2.5 models are no longer flagged unverified. Claude 3 models other than Haiku 3.5, which are retired and no longer listed by Anthropic, are flagged unverified.
+- The Action and CI run on Node 24, and the package needs Node 22 or newer. CI uses `actions/checkout@v7` and `actions/setup-node@v7`.
+- Dev dependencies updated: vitest 5, tsup 9, tsx and @types/node patch releases.
+- The sample ledger and example receipts are recomputed at the new prices.
+
 ## [0.5.0] - 2026-06-30
 
 Session health: keeping the agent sharp over long sessions, not just cheap. The

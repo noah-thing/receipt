@@ -10,10 +10,10 @@ Receipt itemizes what your AI coding agent cost and posts it as a comment on the
 $ receipt show
 
 Receipt
-$5.22  ·  926k tokens  ·  28 calls  ·  2 retries
+$1.78  ·  926k tokens  ·  28 calls  ·  2 retries
 
 model              calls       in      out    cache       cost
-claude-opus-4-8       26      50k      36k     794k      $5.19
+claude-opus-4-8       26      50k      36k     794k      $1.74
 claude-haiku-4-5       2     9.0k     3.5k      34k     $0.036
 ```
 
@@ -21,7 +21,7 @@ That output comes from the sample ledger in [`examples/`](examples). The full pu
 
 ## Install
 
-Receipt is not on npm yet. Build it from source (Node 18 or newer):
+Receipt is not on npm yet. Build it from source (Node 22 or newer):
 
 ```bash
 git clone https://github.com/noah-thing/receipt.git
@@ -33,11 +33,11 @@ npm install && npm run build && npm link
 
 Receipt reads a ledger at `.receipt/ledger.jsonl` and fills it in one of two ways.
 
-If you use Claude Code, import its session logs:
+If you use Claude Code or Codex CLI, import their session logs:
 
 ```bash
 cd your-project
-receipt import claude-code
+receipt import claude-code   # or: receipt import codex
 receipt show
 ```
 
@@ -73,7 +73,7 @@ jobs:
   receipt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: noah-thing/receipt@v1

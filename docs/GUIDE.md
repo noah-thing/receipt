@@ -9,9 +9,10 @@ The long form of what the README summarizes. Every command listed here accepts `
 **The importers** read logs a tool already keeps.
 
 - `receipt import claude-code` walks `~/.claude/projects` and turns each metered turn into a ledger row, with the git branch Claude recorded at the time.
+- `receipt import codex` walks `~/.codex/sessions` (or `$CODEX_HOME/sessions`) and turns each model response into a ledger row. Cached input is split out and priced at the cache rate. Codex records a git branch only for some sessions, so `--branch` can match fewer rows than it does for Claude Code.
 - `receipt import generic usage.json` normalizes any JSON or JSONL export with `prompt_tokens` / `completion_tokens` or `input_tokens` / `output_tokens` fields.
 
-Both de-duplicate on the provider request id, so you can re-run an import without double counting.
+All of them de-duplicate on the provider request id, so you can re-run an import without double counting.
 
 ## Budgets
 
@@ -182,6 +183,7 @@ Spend over time, a breakdown by model and provider, your most expensive branches
 | --- | --- |
 | `receipt proxy` | Run the logging proxy. |
 | `receipt import claude-code` | Import token usage from Claude Code logs. |
+| `receipt import codex` | Import token usage from Codex CLI logs. |
 | `receipt import generic <file>` | Import a JSON/JSONL usage export. |
 | `receipt show` | Print the receipt for the current branch. |
 | `receipt pr` | Render the PR comment as markdown. |
